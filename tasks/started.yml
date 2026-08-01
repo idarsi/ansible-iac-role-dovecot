@@ -1,0 +1,23 @@
+---
+###############################################################################
+#
+# started.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING SYSTEMD SERVICE IS STARTED
+###############################################################################
+
+- name: "Ensuring Dovecot service is started"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "started"
+    enabled: true
+
+- name: "Writing log"
+  ansible.builtin.include_tasks: log_write.yml
+  vars:
+    iac_log_write: "Started service {{ dovecot_service_name }}"

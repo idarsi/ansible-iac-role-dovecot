@@ -1,0 +1,66 @@
+---
+###############################################################################
+#
+# configuration_present.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# CHECKING REQUIREMENTS
+###############################################################################
+
+- name: "Checking if required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - dovecot_configuration is defined
+      - dovecot_etc_directory is defined
+      - dovecot_conf_directory is defined
+      - dovecot_idarsi_conf_path is defined
+    fail_msg: "All tests did not pass"
+
+###############################################################################
+# ENSURING DOVECOT CONFIGURATION
+###############################################################################
+
+- name: "Ensuring Dovecot configuration directory is present"
+  ansible.builtin.file:
+    path: "{{ dovecot_conf_directory }}"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "0755"
+
+- name: "Ensuring Dovecot IDARSI configuration is present"
+  ansible.builtin.template:
+    src: "99-idarsi.conf.j2"
+    dest: "{{ dovecot_idarsi_conf_path }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  register: dovecot_idarsi_conf
+
+- name: "Checking Dovecot configuration"
+  ansible.builtin.command:
+    cmd: "doveconf -n"
+  register: dovecot_check
+  changed_when: false
+  failed_when: dovecot_check.rc != 0
+
+- name: "Collecting service facts"
+  ansible.builtin.service_facts:
+
+- name: "Reloading Dovecot when configuration changed"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "reloaded"
+  when:
+    - dovecot_idarsi_conf.changed
+    - ansible_facts.services[dovecot_service_name ~ '.service'] is defined
+    - ansible_facts.services[dovecot_service_name ~ '.service'].state == 'running'
+
+- name: "Writing log"
+  ansible.builtin.include_tasks: log_write.yml
+  vars:
+    iac_log_write: "Ensured Dovecot configuration was present"

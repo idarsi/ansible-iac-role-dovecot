@@ -1,0 +1,24 @@
+---
+###############################################################################
+#
+# present.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING DOVECOT PACKAGE IS PRESENT
+###############################################################################
+
+- name: "Ensuring Dovecot package is installed"
+  ansible.builtin.include_tasks: package_present.yml
+  vars:
+    iac_package: "{{ dovecot_package }}"
+
+###############################################################################
+# ENSURING DOVECOT CONFIGURATION IS PRESENT
+###############################################################################
+
+- name: "Ensuring Dovecot configuration is present"
+  ansible.builtin.include_tasks: configuration_present.yml

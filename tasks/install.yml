@@ -1,0 +1,18 @@
+---
+###############################################################################
+#
+# install.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING DOVECOT INSTALLATION AND CONFIGURATION
+###############################################################################
+
+- name: "Ensuring Dovecot installation is present"
+  ansible.builtin.include_tasks: present.yml
+
+- name: "Ensuring Dovecot service is started"
+  ansible.builtin.include_tasks: started.yml

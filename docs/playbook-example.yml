@@ -1,0 +1,7 @@
+---
+- name: "Configure Dovecot"
+  hosts: mail_servers
+  become: true
+  roles:
+    - role: ansible-iac-role-dovecot
+      state: install

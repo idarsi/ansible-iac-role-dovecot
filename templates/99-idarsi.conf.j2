@@ -1,0 +1,19 @@
+# Managed by Ansible. Manual changes may be overwritten.
+
+protocols = {{ dovecot_configuration.protocols | default(dovecot_default_protocols) | join(' ') }}
+mail_location = {{ dovecot_configuration.mail_location | default(dovecot_default_mail_location) }}
+
+disable_plaintext_auth = {{ 'yes' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'no' }}
+auth_mechanisms = {{ dovecot_configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms) | join(' ') }}
+
+{% if dovecot_configuration.ssl_cert is defined and dovecot_configuration.ssl_key is defined %}
+ssl = {{ dovecot_configuration.ssl | default(dovecot_default_ssl) }}
+ssl_cert = <{{ dovecot_configuration.ssl_cert }}
+ssl_key = <{{ dovecot_configuration.ssl_key }}
+{% else %}
+ssl = {{ dovecot_configuration.ssl | default('no') }}
+{% endif %}
+
+{% for key, value in dovecot_configuration.extra_parameters | default({}) | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}

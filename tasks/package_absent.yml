@@ -1,0 +1,32 @@
+---
+###############################################################################
+#
+# package_absent.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# CHECKING REQUIREMENTS
+###############################################################################
+
+- name: "Checking if required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - iac_package is defined
+    fail_msg: "All tests did not pass"
+
+###############################################################################
+# ENSURING PACKAGE IS ABSENT
+###############################################################################
+
+- name: "Ensuring package is absent"
+  ansible.builtin.dnf:
+    name: "{{ iac_package }}"
+    state: "absent"
+
+- name: "Writing log"
+  ansible.builtin.include_tasks: log_write.yml
+  vars:
+    iac_log_write: "Ensured {{ iac_package }} was absent"

@@ -1,0 +1,23 @@
+---
+###############################################################################
+#
+# restarted.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING SYSTEMD SERVICE IS RESTARTED
+###############################################################################
+
+- name: "Ensuring Dovecot service is restarted"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "restarted"
+    enabled: true
+
+- name: "Writing log"
+  ansible.builtin.include_tasks: log_write.yml
+  vars:
+    iac_log_write: "Restarted service {{ dovecot_service_name }}"

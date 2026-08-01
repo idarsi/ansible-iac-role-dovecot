@@ -1,0 +1,23 @@
+---
+###############################################################################
+#
+# stopped.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING SYSTEMD SERVICE IS STOPPED
+###############################################################################
+
+- name: "Ensuring Dovecot service is stopped"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "stopped"
+    enabled: false
+
+- name: "Writing log"
+  ansible.builtin.include_tasks: log_write.yml
+  vars:
+    iac_log_write: "Stopped service {{ dovecot_service_name }}"

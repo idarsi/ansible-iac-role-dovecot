@@ -1,0 +1,24 @@
+---
+###############################################################################
+#
+# absent.yml
+#
+# @author Arsi Atomi
+#
+###############################################################################
+
+###############################################################################
+# ENSURING SERVICE IS STOPPED
+###############################################################################
+
+- name: "Ensuring Dovecot service is stopped"
+  ansible.builtin.include_tasks: stopped.yml
+
+###############################################################################
+# ENSURING DOVECOT PACKAGE IS ABSENT
+###############################################################################
+
+- name: "Ensuring Dovecot package is absent"
+  ansible.builtin.include_tasks: package_absent.yml
+  vars:
+    iac_package: "{{ dovecot_package }}"
