@@ -1,0 +1,53 @@
+---
+- name: Verify
+  hosts: all
+  become: false
+  vars:
+    ansible_become_method: su
+    dovecot_config_path: "/etc/dovecot/conf.d/99-idarsi.conf"
+  tasks:
+    - name: "Checking Dovecot package is installed"
+      ansible.builtin.command: "rpm -q dovecot"
+      register: dovecot_package_check
+      changed_when: false
+
+    - name: "Checking Dovecot service is active"
+      ansible.builtin.command: "systemctl is-active dovecot"
+      register: dovecot_service_check
+      changed_when: false
+
+    - name: "Checking Dovecot config file exists"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}"
+      register: dovecot_config_stat
+
+    - name: "Reading Dovecot config file"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_config_path }}"
+      register: dovecot_config_content
+
+    - name: "Checking Dovecot effective configuration"
+      ansible.builtin.command: "doveconf -n"
+      register: dovecot_effective_config
+      changed_when: false
+
+    - name: "Verifying Molecule-managed Dovecot state"
+      ansible.builtin.assert:
+        that:
+          - dovecot_package_check.rc == 0
+          - dovecot_service_check.stdout == 'active'
+          - dovecot_config_stat.stat.exists
+          - dovecot_config_stat.stat.isreg
+          - dovecot_config_content.content | b64decode is search('protocols = imap pop3')
+          - dovecot_config_content.content | b64decode is search('mail_location = maildir:/var/mail/vhosts/%d/%n')
+          - dovecot_config_content.content | b64decode is search('disable_plaintext_auth = yes')
+          - dovecot_config_content.content | b64decode is search('auth_mechanisms = plain login')
+          - dovecot_config_content.content | b64decode is search('ssl = no')
+          - dovecot_config_content.content | b64decode is search('login_greeting = Dovecot ready.')
+          - dovecot_config_content.content | b64decode is search('mail_privileged_group = mail')
+          - dovecot_effective_config.stdout is search('protocols = imap pop3')
+          - dovecot_effective_config.stdout is search('mail_location = maildir:/var/mail/vhosts/%d/%n')
+          - dovecot_effective_config.stdout is search('disable_plaintext_auth = yes')
+          - dovecot_effective_config.stdout is search('auth_mechanisms = plain login')
+          - dovecot_effective_config.stdout is search('ssl = no')
+        fail_msg: "Dovecot Molecule verification failed"
