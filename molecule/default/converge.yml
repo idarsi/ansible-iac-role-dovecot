@@ -1,0 +1,24 @@
+---
+- name: Converge
+  hosts: all
+  become: false
+  vars:
+    state: install
+    ansible_become_method: su
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - imap
+            - pop3
+          mail_location: "maildir:/var/mail/vhosts/%d/%n"
+          auth_mechanisms:
+            - plain
+            - login
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Dovecot ready."
+            mail_privileged_group: "mail"
+  roles:
+    - role: ansible-iac-role-dovecot
