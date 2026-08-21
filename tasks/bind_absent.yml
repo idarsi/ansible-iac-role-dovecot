@@ -1,0 +1,12 @@
+---
+- name: "Preparing Dovecot bind records for removal"
+  ansible.builtin.set_fact:
+    iac_fs_binds: >-
+      {{
+        iac_fs_binds
+        | map('combine', {'purge_on_absent': true})
+        | list
+      }}
+
+- name: "Including shared bind mount absent tasks"
+  ansible.builtin.include_tasks: shared/bind_absent.yml

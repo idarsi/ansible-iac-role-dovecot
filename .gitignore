@@ -1,0 +1,16 @@
+.venv/
+.ansible/
+.ansible_async/
+.local/
+.molecule/
+.vscode/
+.cache/
+.direnv/
+.env
+.env.yml
+.lesshst
+.pytest_cache/
+__pycache__/
+*.pyc
+*.retry
+commit.txt

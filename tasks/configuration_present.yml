@@ -24,6 +24,12 @@
 # ENSURING DOVECOT CONFIGURATION
 ###############################################################################
 
+- name: "Checking Dovecot version"
+  ansible.builtin.command:
+    cmd: "dovecot --version"
+  register: dovecot_version
+  changed_when: false
+
 - name: "Ensuring Dovecot configuration directory is present"
   ansible.builtin.file:
     path: "{{ dovecot_conf_directory }}"

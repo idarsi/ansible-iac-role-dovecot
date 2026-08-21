@@ -3,7 +3,11 @@
 protocols = {{ dovecot_configuration.protocols | default(dovecot_default_protocols) | join(' ') }}
 mail_location = {{ dovecot_configuration.mail_location | default(dovecot_default_mail_location) }}
 
+{% if dovecot_version.stdout is version('2.4.0', '>=') %}
+auth_allow_cleartext = {{ 'yes' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'no' }}
+{% else %}
 disable_plaintext_auth = {{ 'yes' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'no' }}
+{% endif %}
 auth_mechanisms = {{ dovecot_configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms) | join(' ') }}
 
 {% if dovecot_configuration.ssl_cert is defined and dovecot_configuration.ssl_key is defined %}

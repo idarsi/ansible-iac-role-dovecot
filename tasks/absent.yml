@@ -14,6 +14,24 @@
 - name: "Ensuring Dovecot service is stopped"
   ansible.builtin.include_tasks: stopped.yml
 
+- name: "Ensuring cron jobs are absent"
+  ansible.builtin.include_tasks: cron_absent.yml
+  when: (iac_cron | default([])) | length > 0
+
+- name: "Ensuring Git repositories are absent"
+  ansible.builtin.include_tasks: git_absent.yml
+  when: (iac_git_repos | default([])) | length > 0
+
+- name: "Ensuring bind mounts are absent"
+  ansible.builtin.include_tasks: bind_absent.yml
+  when: (iac_fs_binds | default([])) | length > 0
+
+- name: "Ensuring filesystem resources are absent"
+  ansible.builtin.include_tasks: fs_absent.yml
+  when:
+    - (iac_fs_directories | default([])) | length > 0
+      or (iac_fs_files | default([])) | length > 0
+
 ###############################################################################
 # ENSURING DOVECOT PACKAGE IS ABSENT
 ###############################################################################

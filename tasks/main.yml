@@ -33,6 +33,14 @@
   ansible.builtin.set_fact:
     dovecot_configuration: "{{ iac_blueprint.dovecot.configuration | default({}) }}"
 
+- name: "Setting shared Dovecot resource variables"
+  ansible.builtin.set_fact:
+    iac_fs_directories: "{{ iac_blueprint.dovecot.directories | default([]) }}"
+    iac_fs_files: "{{ iac_blueprint.dovecot.files | default([]) }}"
+    iac_fs_binds: "{{ iac_blueprint.dovecot.binds | default([]) }}"
+    iac_cron: "{{ iac_blueprint.dovecot.cron | default([]) }}"
+    iac_git_repos: "{{ iac_blueprint.dovecot.git | default([]) }}"
+
 - name: "Checking proxy address if it's defined"
   ansible.builtin.set_fact:
     proxy_host: "{{ (http_proxy | regex_replace('^https?://', '')).split(':')[0] }}"

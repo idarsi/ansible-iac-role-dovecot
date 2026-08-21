@@ -5,6 +5,13 @@
   vars:
     ansible_become_method: su
     dovecot_config_path: "/etc/dovecot/conf.d/99-idarsi.conf"
+    dovecot_shared_directory: "/tmp/dovecot-shared"
+    dovecot_shared_file: "/tmp/dovecot-shared/example.txt"
+    dovecot_cron_file: "/etc/cron.d/dovecot_heartbeat"
+    dovecot_bind_source: "/srv/data/dovecot-mail"
+    dovecot_bind_target: "/var/lib/dovecot-mail"
+    dovecot_bind_fixture_file: "/srv/data/dovecot-mail/molecule-bind-migrated.txt"
+    dovecot_git_fixture_file: "/var/lib/dovecot-config/README.md"
   tasks:
     - name: "Checking Dovecot package is installed"
       ansible.builtin.command: "rpm -q dovecot"
@@ -31,6 +38,62 @@
       register: dovecot_effective_config
       changed_when: false
 
+    - name: "Checking shared managed directory"
+      ansible.builtin.stat:
+        path: "{{ dovecot_shared_directory }}"
+      register: dovecot_shared_directory_check
+
+    - name: "Checking shared managed file"
+      ansible.builtin.stat:
+        path: "{{ dovecot_shared_file }}"
+      register: dovecot_shared_file_check
+
+    - name: "Reading shared managed file"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_shared_file }}"
+      register: dovecot_shared_file_content
+
+    - name: "Checking shared managed cron file"
+      ansible.builtin.stat:
+        path: "{{ dovecot_cron_file }}"
+      register: dovecot_cron_file_check
+
+    - name: "Reading shared managed cron file"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_cron_file }}"
+      register: dovecot_cron_file_content
+
+    - name: "Checking cloned shared Git fixture"
+      ansible.builtin.stat:
+        path: "{{ dovecot_git_fixture_file }}"
+      register: dovecot_git_fixture_file_check
+
+    - name: "Reading cloned shared Git fixture"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_git_fixture_file }}"
+      register: dovecot_git_fixture_content
+
+    - name: "Checking migrated bind fixture"
+      ansible.builtin.stat:
+        path: "{{ dovecot_bind_fixture_file }}"
+      register: dovecot_bind_fixture_file_check
+
+    - name: "Reading migrated bind fixture"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_bind_fixture_file }}"
+      register: dovecot_bind_fixture_content
+
+    - name: "Checking live Dovecot bind mount source"
+      ansible.builtin.command: "findmnt -n -M {{ dovecot_bind_target }} -o SOURCE"
+      register: dovecot_bind_mount_source
+      changed_when: false
+
+    - name: "Checking Dovecot bind mount fstab entry"
+      ansible.builtin.command: >-
+        grep -F "{{ dovecot_bind_source }} {{ dovecot_bind_target }} none bind 0 0" /etc/fstab
+      register: dovecot_bind_fstab_check
+      changed_when: false
+
     - name: "Verifying Molecule-managed Dovecot state"
       ansible.builtin.assert:
         that:
@@ -39,15 +102,28 @@
           - dovecot_config_stat.stat.exists
           - dovecot_config_stat.stat.isreg
           - dovecot_config_content.content | b64decode is search('protocols = imap pop3')
-          - dovecot_config_content.content | b64decode is search('mail_location = maildir:/var/mail/vhosts/%d/%n')
-          - dovecot_config_content.content | b64decode is search('disable_plaintext_auth = yes')
+          - dovecot_config_content.content | b64decode is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
+          - >-
+            dovecot_config_content.content | b64decode is search('disable_plaintext_auth = yes')
+            or dovecot_config_content.content | b64decode is search('auth_allow_cleartext = no')
           - dovecot_config_content.content | b64decode is search('auth_mechanisms = plain login')
           - dovecot_config_content.content | b64decode is search('ssl = no')
           - dovecot_config_content.content | b64decode is search('login_greeting = Dovecot ready.')
           - dovecot_config_content.content | b64decode is search('mail_privileged_group = mail')
           - dovecot_effective_config.stdout is search('protocols = imap pop3')
-          - dovecot_effective_config.stdout is search('mail_location = maildir:/var/mail/vhosts/%d/%n')
-          - dovecot_effective_config.stdout is search('disable_plaintext_auth = yes')
+          - dovecot_effective_config.stdout is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
           - dovecot_effective_config.stdout is search('auth_mechanisms = plain login')
           - dovecot_effective_config.stdout is search('ssl = no')
+          - dovecot_shared_directory_check.stat.exists
+          - dovecot_shared_directory_check.stat.isdir
+          - dovecot_shared_file_check.stat.exists
+          - (dovecot_shared_file_content.content | b64decode) == 'dovecot molecule shared fixture\n'
+          - dovecot_cron_file_check.stat.exists
+          - (dovecot_cron_file_content.content | b64decode) is search('/bin/true')
+          - dovecot_git_fixture_file_check.stat.exists
+          - (dovecot_git_fixture_content.content | b64decode) == 'dovecot molecule git fixture\n'
+          - dovecot_bind_fixture_file_check.stat.exists
+          - (dovecot_bind_fixture_content.content | b64decode) == 'dovecot legacy bind data\n'
+          - (dovecot_bind_mount_source.stdout | trim) is search(dovecot_bind_source)
+          - dovecot_bind_fstab_check.rc == 0
         fail_msg: "Dovecot Molecule verification failed"
