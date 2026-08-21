@@ -11,7 +11,7 @@
           protocols:
             - imap
             - pop3
-          mail_location: "maildir:/var/mail/vhosts/%d/%n"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
           auth_mechanisms:
             - plain
             - login
@@ -20,5 +20,202 @@
           extra_parameters:
             login_greeting: "Dovecot ready."
             mail_privileged_group: "mail"
+        directories:
+          - path: /tmp/dovecot-shared
+            owner: root
+            group: root
+            mode: "0750"
+        files:
+          - path: /tmp/dovecot-shared/example.txt
+            content: "dovecot molecule shared fixture\n"
+            owner: root
+            group: root
+            mode: "0640"
+        binds:
+          - source: /srv/data/dovecot-mail
+            target: /var/lib/dovecot-mail
+            owner: root
+            group: root
+            mode: "0750"
+            move_from_target: true
+        cron:
+          - name: dovecot_heartbeat
+            user: root
+            minute: "0"
+            hour: "3"
+            job: "/bin/true"
+            cron_file: dovecot_heartbeat
+        git:
+          - repo: /tmp/dovecot-molecule-source
+            dest: /var/lib/dovecot-config
+            version: main
+            update: true
+  pre_tasks:
+    - name: "Stopping Dovecot before cleaning previous bind test state"
+      ansible.builtin.systemd:
+        name: dovecot
+        state: stopped
+      failed_when: false
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Checking whether Dovecot bind target is currently mounted"
+      ansible.builtin.command: "findmnt -n -M /var/lib/dovecot-mail -o SOURCE"
+      register: dovecot_molecule_existing_bind_mount
+      changed_when: false
+      failed_when: false
+
+    - name: "Unmounting previous Dovecot bind mount from failed test runs"
+      ansible.builtin.command: "umount /var/lib/dovecot-mail"
+      register: dovecot_molecule_umount_result
+      failed_when: false
+      changed_when: dovecot_molecule_umount_result.rc == 0
+      when: dovecot_molecule_existing_bind_mount.rc == 0
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Lazy-unmounting previous busy Dovecot bind mount"
+      ansible.builtin.command: "umount -l /var/lib/dovecot-mail"
+      failed_when: false
+      changed_when: true
+      when:
+        - dovecot_molecule_existing_bind_mount.rc == 0
+        - dovecot_molecule_umount_result.rc is defined
+        - dovecot_molecule_umount_result.rc != 0
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Removing previous Dovecot bind mount fstab entry"
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: "^/srv/data/dovecot-mail\\s+/var/lib/dovecot-mail\\s+none\\s+bind\\s+0\\s+0$"
+        state: absent
+      failed_when: false
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Removing previous Dovecot shared resource fixtures"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /srv/data/dovecot-mail
+        - /var/lib/dovecot-mail
+        - /tmp/dovecot-shared
+        - /var/lib/dovecot-config
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Ensuring /etc/fstab exists for Dovecot bind mount test"
+      ansible.builtin.copy:
+        dest: /etc/fstab
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+        content: ""
+
+    - name: "Creating Dovecot bind migration target directory"
+      ansible.builtin.file:
+        path: /var/lib/dovecot-mail
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Writing Dovecot bind migration fixture into target directory"
+      ansible.builtin.copy:
+        dest: /var/lib/dovecot-mail/molecule-bind-migrated.txt
+        owner: root
+        group: root
+        mode: "0600"
+        content: "dovecot legacy bind data\n"
+      tags:
+        - molecule-idempotence-notest
+
+    - name: "Ensuring Git is installed for Dovecot Molecule fixture"
+      ansible.builtin.package:
+        name: git
+        state: present
+
+    - name: "Ensuring Dovecot Molecule Git source directory exists"
+      ansible.builtin.file:
+        path: /tmp/dovecot-molecule-source
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: "Writing Dovecot Molecule Git source fixture"
+      ansible.builtin.copy:
+        dest: /tmp/dovecot-molecule-source/README.md
+        owner: root
+        group: root
+        mode: "0644"
+        content: "dovecot molecule git fixture\n"
+
+    - name: "Checking whether Dovecot Molecule Git source repository exists"
+      ansible.builtin.stat:
+        path: /tmp/dovecot-molecule-source/.git
+      register: dovecot_molecule_git_source_repo
+
+    - name: "Initializing Dovecot Molecule Git source repository"
+      ansible.builtin.command:
+        argv:
+          - git
+          - init
+          - --initial-branch=main
+          - /tmp/dovecot-molecule-source
+      changed_when: true
+      when: not dovecot_molecule_git_source_repo.stat.exists
+
+    - name: "Configuring Dovecot Molecule Git source repository user email"
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - /tmp/dovecot-molecule-source
+          - config
+          - user.email
+          - molecule@example.org
+      changed_when: true
+      when: not dovecot_molecule_git_source_repo.stat.exists
+
+    - name: "Configuring Dovecot Molecule Git source repository user name"
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - /tmp/dovecot-molecule-source
+          - config
+          - user.name
+          - Molecule
+      changed_when: true
+      when: not dovecot_molecule_git_source_repo.stat.exists
+
+    - name: "Adding Dovecot Molecule Git source fixture"
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - /tmp/dovecot-molecule-source
+          - add
+          - README.md
+      changed_when: true
+      when: not dovecot_molecule_git_source_repo.stat.exists
+
+    - name: "Committing Dovecot Molecule Git source fixture"
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - /tmp/dovecot-molecule-source
+          - commit
+          - -m
+          - "Add Molecule fixture"
+      changed_when: true
+      when: not dovecot_molecule_git_source_repo.stat.exists
   roles:
     - role: ansible-iac-role-dovecot

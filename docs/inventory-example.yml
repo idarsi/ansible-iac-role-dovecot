@@ -5,7 +5,8 @@ iac_blueprint:
       protocols:
         - "imap"
         - "pop3"
-      mail_location: "maildir:~/Maildir"
+      # user@example.org resolves to /var/vmail/example.org/user
+      mail_location: "maildir:/var/vmail/%d/%n"
       auth_mechanisms:
         - "plain"
         - "login"
@@ -13,3 +14,34 @@ iac_blueprint:
       ssl: "required"
       ssl_cert: "/etc/pki/dovecot/certs/dovecot.pem"
       ssl_key: "/etc/pki/dovecot/private/dovecot.pem"
+    directories:
+      - path: "/srv/mail/dovecot"
+        owner: "vmail"
+        group: "mail"
+        mode: "0750"
+    files:
+      - path: "/etc/dovecot/conf.d/99-local-extra.conf"
+        content: |
+          mail_uid = vmail
+          mail_gid = mail
+        owner: "root"
+        group: "root"
+        mode: "0644"
+    binds:
+      - source: "/srv/mail/dovecot"
+        target: "/var/vmail"
+        owner: "vmail"
+        group: "mail"
+        mode: "0750"
+        move_from_target: true
+    cron:
+      - name: "dovecot-mail-check"
+        user: "root"
+        minute: "*/15"
+        job: "/usr/local/bin/dovecot-mail-check"
+        cron_file: "dovecot-mail-check"
+    git:
+      - repo: "https://github.com/example/dovecot-config.git"
+        dest: "/srv/dovecot-config"
+        version: "main"
+        single_branch: true

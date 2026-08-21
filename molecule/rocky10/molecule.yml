@@ -6,8 +6,8 @@ driver:
   name: podman
 
 platforms:
-  - name: instance-idarsi-rl9
-    image: docker.io/rockylinux/rockylinux:9-ubi-init
+  - name: instance-idarsi-rl10
+    image: quay.io/rockylinux/rockylinux:10-ubi-init
     command: /sbin/init
     privileged: true
     pre_build_image: true
