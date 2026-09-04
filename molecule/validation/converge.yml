@@ -4,9 +4,8 @@
   become: false
   vars:
     state: "validate"
-    dovecot_validation_token_path: >-
-      {{ (lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') | default('/tmp', true)) ~
-      '/dovecot-validation-token' }}
+    dovecot_molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
+    dovecot_validation_token_path: "{{ dovecot_molecule_ephemeral_directory }}/dovecot-validation-token"
     iac_blueprint:
       dovecot:
         configuration:
@@ -16,6 +15,13 @@
             cron_file: "validation-remove-me"
             state: "absent"
   pre_tasks:
+    - name: "Require Molecule ephemeral directory for validation artifacts"
+      ansible.builtin.assert:
+        that:
+          - dovecot_molecule_ephemeral_directory | length > 0
+        fail_msg: >-
+          MOLECULE_EPHEMERAL_DIRECTORY must be set to a non-empty directory;
+          refusing to use a shared fallback for validation artifacts
     - name: "Checking for an existing validation-run token"
       ansible.builtin.stat:
         path: "{{ dovecot_validation_token_path }}"
@@ -38,6 +44,9 @@
           dovecot_validation_existing_snapshot.stat.exists
         fail_msg: "A validation token exists without its snapshot; refusing to reuse stale state"
     - name: "Validating an existing validation snapshot before reuse"
+      when:
+        - dovecot_validation_existing_token.stat.exists
+        - dovecot_validation_existing_snapshot.stat.exists
       block:
         - name: "Reading an existing validation snapshot"
           ansible.builtin.slurp:
@@ -72,9 +81,6 @@
         - name: "Failing closed on invalid validation snapshot reuse"
           ansible.builtin.fail:
             msg: "Existing validation token/snapshot failed integrity checks; refusing idempotence reuse"
-      when:
-        - dovecot_validation_existing_token.stat.exists
-        - dovecot_validation_existing_snapshot.stat.exists
     - name: "Detecting validation snapshot initialization"
       ansible.builtin.set_fact:
         dovecot_validation_snapshot_initialized: >-
@@ -378,7 +384,10 @@
           ansible.builtin.assert:
             that:
               - ansible_failed_result is defined
-              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+              - >-
+                'Dovecot configuration directories must use the fixed
+                /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath
+                /etc/dovecot/conf.d' in dovecot_validation_failure_messages
 
 - name: "Reject an overridden managed configuration path"
   hosts: all
@@ -410,7 +419,10 @@
           ansible.builtin.assert:
             that:
               - ansible_failed_result is defined
-              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+              - >-
+                'Dovecot configuration directories must use the fixed
+                /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath
+                /etc/dovecot/conf.d' in dovecot_validation_failure_messages
 
 - name: "Reject an invalid proxy URL"
   hosts: all
@@ -516,7 +528,8 @@
               {{ [ansible_failed_result.msg | default(''),
                  (ansible_failed_task.args | default({})).fail_msg | default('')] +
                  (ansible_failed_result.results | default([]) |
-                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) +
+                 [ansible_failed_result | to_json] }}
         - name: "Asserting symlink purge source rejection"
           ansible.builtin.assert:
             that:
@@ -524,3 +537,37 @@
               - >-
                 "Refusing to purge symlink bind source '/tmp/dovecot-purge-link'"
                 in dovecot_validation_failure_messages
+
+- name: "Reject conflicting cron declarations"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "cron-present"
+            job: "/bin/true"
+            cron_file: "conflicting-cron"
+          - name: "cron-absent"
+            state: "absent"
+            cron_file: "conflicting-cron"
+  tasks:
+    - name: "Expect conflicting cron declarations to fail"
+      block:
+        - name: "Running role with conflicting cron declarations"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if conflicting cron declarations were accepted"
+          ansible.builtin.fail:
+            msg: "Conflicting cron declarations were accepted"
+      rescue:
+        - name: "Asserting conflicting cron declaration rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Dovecot cron_file values must be unique" in
+                (ansible_failed_result.msg | default(''))

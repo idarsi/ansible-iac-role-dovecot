@@ -1,0 +1,4 @@
+---
+- name: "Verify global absent scenario"
+  hosts: all
+  tasks: []

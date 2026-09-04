@@ -1,2 +1,3 @@
 ---
-- import_playbook: ../default/converge.yml
+- name: "Run Rocky Linux 10 baseline convergence"
+  import_playbook: ../default/converge.yml

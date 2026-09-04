@@ -1,0 +1,31 @@
+---
+- name: "Verify explicit absent cron behavior"
+  hosts: all
+  become: false
+  tasks:
+    - name: "Checking final package state"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Checking removed cron file"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/fresh-absent-cron"
+      register: dovecot_fresh_absent_cron_stat
+    - name: "Checking removed ownership marker"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/.fresh-absent-cron.idarsi-managed"
+      register: dovecot_fresh_absent_marker_stat
+    - name: "Checking recovered cron file"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/recovery-cron"
+      register: dovecot_recovery_cron_stat
+    - name: "Checking recovered ownership marker"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/.recovery-cron.idarsi-managed"
+      register: dovecot_recovery_marker_stat
+    - name: "Asserting fresh explicit absent cron cleanup"
+      ansible.builtin.assert:
+        that:
+          - not dovecot_fresh_absent_cron_stat.stat.exists
+          - not dovecot_fresh_absent_marker_stat.stat.exists
+          - dovecot_recovery_cron_stat.stat.exists
+          - dovecot_recovery_marker_stat.stat.exists

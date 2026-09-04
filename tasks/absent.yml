@@ -19,6 +19,8 @@
 
 - name: "Ensuring cron jobs are absent"
   ansible.builtin.include_tasks: cron_absent.yml
+  vars:
+    dovecot_cron_records: "{{ iac_cron }}"
   when: (iac_cron | default([])) | length > 0
 
 - name: "Ensuring Git repositories are absent"

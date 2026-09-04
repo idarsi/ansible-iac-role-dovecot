@@ -1,4 +1,3 @@
----
 - name: Converge
   hosts: all
   become: false
@@ -39,16 +38,16 @@
             mode: "0750"
             move_from_target: true
         cron:
-          - name: dovecot_heartbeat
-            user: root
+          - name: "dovecot_heartbeat"
+            user: "root"
             minute: "0"
             hour: "3"
             job: "/bin/true"
-            cron_file: dovecot_heartbeat
+            cron_file: "dovecot_heartbeat"
         git:
-          - repo: /tmp/dovecot-molecule-source
-            dest: /var/lib/dovecot-config
-            version: main
+          - repo: "/tmp/dovecot-molecule-source"
+            dest: "/var/lib/dovecot-config"
+            version: "main"
             update: true
   pre_tasks:
     - name: "Stopping Dovecot before cleaning previous bind test state"

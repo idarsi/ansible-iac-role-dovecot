@@ -1,6 +1,8 @@
 ---
 - name: "Collecting fixture metadata"
-  ansible.builtin.stat:
+  # This file is included as a task list; standalone lint parsing otherwise
+  # interprets its first task as a play.
+  ansible.builtin.stat:  # noqa syntax-check[specific]
     path: "{{ dovecot_validation_fixture_path }}"
     checksum_algorithm: "sha256"
   register: dovecot_validation_fixture_stat

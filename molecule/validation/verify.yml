@@ -3,10 +3,16 @@
   hosts: all
   become: false
   vars:
-    dovecot_validation_token_path: >-
-      {{ (lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') | default('/tmp', true)) ~
-      '/dovecot-validation-token' }}
+    dovecot_molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
+    dovecot_validation_token_path: "{{ dovecot_molecule_ephemeral_directory }}/dovecot-validation-token"
   tasks:
+    - name: "Require Molecule ephemeral directory for validation artifacts"
+      ansible.builtin.assert:
+        that:
+          - dovecot_molecule_ephemeral_directory | length > 0
+        fail_msg: >-
+          MOLECULE_EPHEMERAL_DIRECTORY must be set to a non-empty directory;
+          refusing to use a shared fallback for validation artifacts
     - name: "Checking current-run validation token"
       ansible.builtin.stat:
         path: "{{ dovecot_validation_token_path }}"

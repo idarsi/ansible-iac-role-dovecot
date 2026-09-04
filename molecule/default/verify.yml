@@ -14,14 +14,11 @@
     dovecot_git_fixture_file: "/var/lib/dovecot-config/README.md"
   tasks:
     - name: "Checking Dovecot package is installed"
-      ansible.builtin.command: "rpm -q dovecot"
-      register: dovecot_package_check
-      changed_when: false
+      ansible.builtin.package_facts:
+        manager: "auto"
 
     - name: "Checking Dovecot service is active"
-      ansible.builtin.command: "systemctl is-active dovecot"
-      register: dovecot_service_check
-      changed_when: false
+      ansible.builtin.service_facts:
 
     - name: "Checking Dovecot config file exists"
       ansible.builtin.stat:
@@ -57,6 +54,16 @@
       ansible.builtin.stat:
         path: "{{ dovecot_cron_file }}"
       register: dovecot_cron_file_check
+
+    - name: "Checking shared cron ownership marker"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/.dovecot_heartbeat.idarsi-managed"
+      register: dovecot_cron_marker_check
+
+    - name: "Reading shared cron ownership marker"
+      ansible.builtin.slurp:
+        src: "/etc/cron.d/.dovecot_heartbeat.idarsi-managed"
+      register: dovecot_cron_marker_content
 
     - name: "Reading shared managed cron file"
       ansible.builtin.slurp:
@@ -97,8 +104,8 @@
     - name: "Verifying Molecule-managed Dovecot state"
       ansible.builtin.assert:
         that:
-          - dovecot_package_check.rc == 0
-          - dovecot_service_check.stdout == 'active'
+          - ansible_facts.packages.dovecot is defined
+          - ansible_facts.services['dovecot.service'].state == 'running'
           - dovecot_config_stat.stat.exists
           - dovecot_config_stat.stat.isreg
           - dovecot_config_content.content | b64decode is search('protocols = imap pop3')
@@ -119,6 +126,11 @@
           - dovecot_shared_file_check.stat.exists
           - (dovecot_shared_file_content.content | b64decode) == 'dovecot molecule shared fixture\n'
           - dovecot_cron_file_check.stat.exists
+          - dovecot_cron_marker_check.stat.exists
+          - dovecot_cron_marker_check.stat.isreg
+          - dovecot_cron_marker_check.stat.mode == '0600'
+          - dovecot_cron_marker_content.content | b64decode is search('"path":')
+          - dovecot_cron_marker_content.content | b64decode is search('"checksum":')
           - (dovecot_cron_file_content.content | b64decode) is search('/bin/true')
           - dovecot_git_fixture_file_check.stat.exists
           - (dovecot_git_fixture_content.content | b64decode) == 'dovecot molecule git fixture\n'

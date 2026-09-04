@@ -133,6 +133,9 @@ library under `tasks/shared`. Add these optional fields under
 - `cron` maps to `iac_cron`
 - `git` maps to `iac_git_repos`
 
+The role API is `iac_blueprint.dovecot.cron`; `iac_cron` is only the internal
+variable passed to the shared task wrappers.
+
 Shared host resource example
 ----------------------------
 
@@ -178,6 +181,38 @@ Git URL is a placeholder and must be replaced with an accessible repository
 before that entry is enabled. Bind records manage host storage and are not
 automatically connected to Dovecot's mail location unless the configured
 `mail_location` points to the bind target.
+
+Cron record state is evaluated independently for each record. If `state` is
+omitted or set to `present`, the record is ensured by the present/install
+states and requires a `job`. If `state` is `absent`, the record is removed by
+removing the role-managed whole file `/etc/cron.d/<cron_file>`; it does not
+require a `job` and leaves the `cronie` package state unchanged. This
+whole-file removal is intentional: a cron file
+named by an explicit absent record is owned by this role. `cron_file` is a
+validated basename and cannot select an arbitrary path. For example:
+
+```yaml
+iac_blueprint:
+  dovecot:
+    cron:
+      - name: "dovecot-mail-check"
+        state: "absent"
+        cron_file: "dovecot-mail-check"
+```
+
+The global `absent` and `uninstall` states retain the legacy shared-task
+entry-removal behavior for records without an explicit record `state`.
+Present/install management writes a restrictive sidecar manifest only when it
+creates the cron file, and refreshes an already valid role-owned manifest after
+subsequent changes. It never claims ownership of a pre-existing unmarked cron
+file. Explicit absent removal requires an intact root-owned `0600` manifest
+whose recorded inode, checksum, and size still match the file immediately
+before removal; otherwise the role fails closed. If both file and manifest are
+absent, explicit absent is a successful no-op. A valid stale manifest with no
+file is removed safely; malformed, mismatched, or insecure markers fail closed.
+The manifest is removed together with the owned cron file. The final checks
+reduce, but cannot eliminate, races with another process changing the files
+between validation and deletion.
 
 Virtual-mail example
 --------------------

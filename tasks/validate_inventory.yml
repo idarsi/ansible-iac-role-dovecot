@@ -342,7 +342,7 @@
       - dovecot_aux_record.job is not defined or dovecot_aux_record.job is string
       - dovecot_aux_record.version is not defined or dovecot_aux_record.version is string
       - dovecot_aux_record.single_branch is not defined or dovecot_aux_record.single_branch is boolean
-      - dovecot_aux_record.update is not defined or dovecot_aux_record.update is boolean
+      - dovecot_aux_record['update'] is not defined or dovecot_aux_record['update'] is boolean
       - dovecot_aux_record.force is not defined or dovecot_aux_record.force is boolean
       - dovecot_aux_record.recursive is not defined or dovecot_aux_record.recursive is boolean
       - dovecot_aux_record.accept_hostkey is not defined or dovecot_aux_record.accept_hostkey is boolean
@@ -368,11 +368,11 @@
       - dovecot_cron_record.name is string
       - dovecot_cron_record.cron_file is defined
       - dovecot_cron_record.cron_file is string
-      - dovecot_cron_record.cron_file is match('^[A-Za-z0-9_.-]+$')
-      - state in ['absent', 'uninstall'] or dovecot_cron_record.state == 'absent' or dovecot_cron_record.job is defined
+      - dovecot_cron_record.cron_file is match('^[A-Za-z0-9_-][A-Za-z0-9_.-]*$')
+      - state in ['absent', 'uninstall'] or (dovecot_cron_record['state'] | default('present')) == 'absent' or dovecot_cron_record.job is defined
       - dovecot_cron_record.job is not defined or dovecot_cron_record.job is string
       - dovecot_cron_record.user is not defined or dovecot_cron_record.user is string
-      - dovecot_cron_record.state is not defined or dovecot_cron_record.state in ['present', 'absent']
+      - (dovecot_cron_record['state'] | default('present')) in ['present', 'absent']
       - dovecot_cron_record.minute is not defined or dovecot_cron_record.minute is string
       - dovecot_cron_record.hour is not defined or dovecot_cron_record.hour is string
       - dovecot_cron_record.day is not defined or dovecot_cron_record.day is string
@@ -394,6 +394,15 @@
   loop_control:
     loop_var: dovecot_cron_record
     label: "{{ dovecot_cron_record.name | default('invalid') }}"
+
+- name: "Rejecting duplicate Dovecot cron files"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (iac_blueprint.dovecot.cron | default([]) |
+        map(attribute='cron_file') | list | unique | length) ==
+        (iac_blueprint.dovecot.cron | default([]) | length)
+    fail_msg: "Dovecot cron_file values must be unique; present and absent records cannot target the same file"
 
 - name: "Guarding destructive Dovecot resource paths"
   ansible.builtin.assert:

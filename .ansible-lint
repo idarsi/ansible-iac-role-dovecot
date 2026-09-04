@@ -1,0 +1,5 @@
+# The role vendors tasks/shared as an external git submodule. Its lint findings
+# belong to ansible-iac-shared-tasks, so only that submodule is excluded here.
+# The role, examples, and Molecule scenarios remain in the production check.
+exclude_paths:
+  - "tasks/shared/"
