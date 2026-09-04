@@ -1,10 +1,19 @@
 ---
-- name: "Including shared cron absent tasks"
-  ansible.builtin.include_tasks: shared/cron_absent.yml
+- name: "Removing role-managed cron files for explicit absent records"
+  ansible.builtin.include_tasks: cron_absent_record.yml
   loop: "{{ dovecot_cron_records }}"
   loop_control:
     loop_var: dovecot_cron_absent_record
     label: "{{ dovecot_cron_absent_record.name | default('invalid') }}"
+  when: dovecot_cron_absent_record.state | default('present') == 'absent'
+
+- name: "Including shared cron absent tasks for global absent state"
+  ansible.builtin.include_tasks: shared/cron_absent.yml
+  loop: "{{ dovecot_cron_records }}"
+  loop_control:
+    loop_var: dovecot_cron_global_absent_record
+    label: "{{ dovecot_cron_global_absent_record.name | default('invalid') }}"
   vars:
     iac_cron:
-      - "{{ dovecot_cron_absent_record }}"
+      - "{{ dovecot_cron_global_absent_record }}"
+  when: dovecot_cron_global_absent_record.state | default('present') != 'absent'

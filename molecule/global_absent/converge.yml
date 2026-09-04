@@ -1,0 +1,66 @@
+---
+- name: "Global absent removes only the declared cron entry"
+  hosts: all
+  become: false
+  vars:
+    state: "absent"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "global-absent-remove"
+            cron_file: "dovecot_global_absent"
+  pre_tasks:
+    - name: "Creating unmarked global-absent cron fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/dovecot_global_absent"
+        content: "#Ansible: global-absent-remove\n0 0 * * * root /bin/true\n#Ansible: global-retained\n0 1 * * * root /bin/true\n"
+        mode: "0644"
+      tags:
+        - molecule-idempotence-notest
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Reading global-absent cron fixture"
+      ansible.builtin.slurp:
+        src: "/etc/cron.d/dovecot_global_absent"
+      register: dovecot_global_absent_content
+    - name: "Asserting global absent preserved unrelated entry"
+      ansible.builtin.assert:
+        that:
+          - dovecot_global_absent_content.content | b64decode is not search('global-absent-remove')
+          - dovecot_global_absent_content.content | b64decode is search('global-retained')
+
+- name: "Global uninstall removes only the declared cron entry"
+  hosts: all
+  become: false
+  vars:
+    state: "uninstall"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "global-uninstall-remove"
+            cron_file: "dovecot_global_uninstall"
+  pre_tasks:
+    - name: "Creating unmarked global-uninstall cron fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/dovecot_global_uninstall"
+        content: "#Ansible: global-uninstall-remove\n0 0 * * * root /bin/true\n#Ansible: global-retained-uninstall\n0 1 * * * root /bin/true\n"
+        mode: "0644"
+      tags:
+        - molecule-idempotence-notest
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Reading global-uninstall cron fixture"
+      ansible.builtin.slurp:
+        src: "/etc/cron.d/dovecot_global_uninstall"
+      register: dovecot_global_uninstall_content
+    - name: "Asserting global uninstall preserved unrelated entry"
+      ansible.builtin.assert:
+        that:
+          - dovecot_global_uninstall_content.content | b64decode is not search('global-uninstall-remove')
+          - dovecot_global_uninstall_content.content | b64decode is search('global-retained-uninstall')

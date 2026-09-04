@@ -1,0 +1,189 @@
+---
+- name: "Checking ownership marker for absent cron file"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_ownership_marker
+
+- name: "Reading ownership marker for absent cron file"
+  ansible.builtin.slurp:
+    src: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_ownership_marker_content
+  when: dovecot_cron_ownership_marker.stat.exists
+
+- name: "Checking existing cron file immediately before removal"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/{{ dovecot_cron_absent_record.cron_file }}"
+  register: dovecot_cron_file_before_removal
+
+- name: "Parsing cron ownership manifest"
+  when: dovecot_cron_ownership_marker.stat.exists
+  block:
+    - name: "Loading cron ownership manifest"
+      ansible.builtin.set_fact:
+        dovecot_cron_manifest_data: "{{ dovecot_cron_ownership_marker_content.content | b64decode | from_json }}"
+  rescue:
+    - name: "Rejecting malformed cron ownership manifest"
+      ansible.builtin.fail:
+        msg: "Refusing to remove malformed Dovecot cron ownership manifest {{ dovecot_cron_absent_record.cron_file }}"
+
+- name: "Rejecting an unsafe stale ownership marker"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_ownership_marker.stat.isreg
+      - dovecot_cron_ownership_marker.stat.pw_name == 'root'
+      - dovecot_cron_ownership_marker.stat.gr_name == 'root'
+      - dovecot_cron_ownership_marker.stat.mode == '0600'
+      - dovecot_cron_manifest_data is mapping
+      - >-
+        (['path', 'inode', 'checksum', 'size', 'mode'] |
+        difference(dovecot_cron_manifest_data.keys()) | length) == 0
+      - >-
+        (dovecot_cron_manifest_data.keys() |
+        difference(['path', 'inode', 'checksum', 'size', 'mode']) | length) == 0
+      - >-
+        dovecot_cron_manifest_data.path ==
+        '/etc/cron.d/' ~ dovecot_cron_absent_record.cron_file
+      - dovecot_cron_manifest_data.inode is integer
+      - dovecot_cron_manifest_data.checksum is string
+      - dovecot_cron_manifest_data.size is integer
+      - dovecot_cron_manifest_data.mode is string
+    fail_msg: "Refusing to remove an unsafe stale Dovecot cron ownership marker"
+  when:
+    - not dovecot_cron_file_before_removal.stat.exists
+    - dovecot_cron_ownership_marker.stat.exists
+
+- name: "Rejecting removal of an unowned or changed cron file"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_ownership_marker.stat.exists
+      - dovecot_cron_ownership_marker.stat.isreg
+      - dovecot_cron_ownership_marker.stat.pw_name == 'root'
+      - dovecot_cron_ownership_marker.stat.gr_name == 'root'
+      - dovecot_cron_ownership_marker.stat.mode == '0600'
+      - >-
+        dovecot_cron_file_before_removal.stat.isreg
+      - >-
+        dovecot_cron_manifest_data.inode |
+        int == dovecot_cron_file_before_removal.stat.inode | int
+      - >-
+        dovecot_cron_manifest_data.path ==
+        '/etc/cron.d/' ~ dovecot_cron_absent_record.cron_file
+      - >-
+        dovecot_cron_manifest_data.checksum ==
+        dovecot_cron_file_before_removal.stat.checksum
+      - >-
+        dovecot_cron_manifest_data.size |
+        int == dovecot_cron_file_before_removal.stat.size | int
+    fail_msg: "Refusing to remove unowned or changed Dovecot cron file {{ dovecot_cron_absent_record.cron_file }}"
+  when: dovecot_cron_file_before_removal.stat.exists
+
+- name: "Finally checking cron file immediately before deletion"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/{{ dovecot_cron_absent_record.cron_file }}"
+  register: dovecot_cron_file_final
+
+- name: "Finally checking ownership marker immediately before deletion"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_marker_final
+
+- name: "Finally reading ownership marker immediately before deletion"
+  ansible.builtin.slurp:
+    src: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_marker_final_content
+  when: dovecot_cron_marker_final.stat.exists
+
+- name: "Parsing final cron ownership manifest"
+  when: dovecot_cron_marker_final.stat.exists
+  block:
+    - name: "Loading final cron ownership manifest"
+      ansible.builtin.set_fact:
+        dovecot_cron_manifest_final_data: "{{ dovecot_cron_marker_final_content.content | b64decode | from_json }}"
+  rescue:
+    - name: "Rejecting malformed final cron ownership manifest"
+      ansible.builtin.fail:
+        msg: "Refusing to remove malformed Dovecot cron ownership manifest {{ dovecot_cron_absent_record.cron_file }}"
+
+- name: "Revalidating owned cron file immediately before deletion"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_file_final.stat.exists
+      - dovecot_cron_file_final.stat.isreg
+      - dovecot_cron_marker_final.stat.exists
+      - dovecot_cron_marker_final.stat.isreg
+      - dovecot_cron_marker_final.stat.pw_name == 'root'
+      - dovecot_cron_marker_final.stat.gr_name == 'root'
+      - dovecot_cron_marker_final.stat.mode == '0600'
+      - >-
+        (['path', 'inode', 'checksum', 'size', 'mode'] |
+        difference(dovecot_cron_manifest_final_data.keys()) | length) == 0
+      - >-
+        (dovecot_cron_manifest_final_data.keys() |
+        difference(['path', 'inode', 'checksum', 'size', 'mode']) | length) == 0
+      - dovecot_cron_manifest_final_data.inode is integer
+      - dovecot_cron_manifest_final_data.checksum is string
+      - dovecot_cron_manifest_final_data.size is integer
+      - dovecot_cron_manifest_final_data.mode is string
+      - >-
+        dovecot_cron_manifest_final_data.path ==
+        '/etc/cron.d/' ~ dovecot_cron_absent_record.cron_file
+      - >-
+        dovecot_cron_manifest_final_data.inode |
+        int == dovecot_cron_file_final.stat.inode | int
+      - >-
+        dovecot_cron_manifest_final_data.checksum ==
+        dovecot_cron_file_final.stat.checksum
+      - >-
+        dovecot_cron_manifest_final_data.size |
+        int == dovecot_cron_file_final.stat.size | int
+      - >-
+        dovecot_cron_manifest_final_data.mode ==
+        dovecot_cron_file_final.stat.mode
+    fail_msg: "Refusing to remove changed or unsafe Dovecot cron file {{ dovecot_cron_absent_record.cron_file }}"
+  when: dovecot_cron_file_final.stat.exists
+
+- name: "Revalidating stale ownership marker immediately before deletion"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_cron_file_final.stat.exists
+      - dovecot_cron_marker_final.stat.exists
+      - dovecot_cron_marker_final.stat.isreg
+      - dovecot_cron_marker_final.stat.pw_name == 'root'
+      - dovecot_cron_marker_final.stat.gr_name == 'root'
+      - dovecot_cron_marker_final.stat.mode == '0600'
+      - dovecot_cron_manifest_final_data is mapping
+      - >-
+        (['path', 'inode', 'checksum', 'size', 'mode'] |
+        difference(dovecot_cron_manifest_final_data.keys()) | length) == 0
+      - >-
+        (dovecot_cron_manifest_final_data.keys() |
+        difference(['path', 'inode', 'checksum', 'size', 'mode']) | length) == 0
+      - dovecot_cron_manifest_final_data.inode is integer
+      - dovecot_cron_manifest_final_data.checksum is string
+      - dovecot_cron_manifest_final_data.size is integer
+      - dovecot_cron_manifest_final_data.mode is string
+      - >-
+        dovecot_cron_manifest_final_data.path ==
+        '/etc/cron.d/' ~ dovecot_cron_absent_record.cron_file
+    fail_msg: "Refusing to remove an unsafe stale Dovecot cron ownership marker"
+  when:
+    - not dovecot_cron_file_final.stat.exists
+    - dovecot_cron_marker_final.stat.exists
+
+- name: "Removing stale ownership marker when cron file is absent"
+  ansible.builtin.file:
+    path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+    state: "absent"
+  when:
+    - not dovecot_cron_file_final.stat.exists
+    - dovecot_cron_marker_final.stat.exists
+
+- name: "Removing owned cron file"
+  ansible.builtin.file:
+    path: "/etc/cron.d/{{ dovecot_cron_absent_record.cron_file }}"
+    state: "absent"
+
+- name: "Removing cron ownership marker"
+  ansible.builtin.file:
+    path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+    state: "absent"

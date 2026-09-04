@@ -530,3 +530,236 @@
               - >-
                 "Refusing to purge symlink bind source '/tmp/dovecot-purge-link'"
                 in dovecot_validation_failure_messages
+
+- name: "Reject conflicting cron declarations"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "cron-present"
+            job: "/bin/true"
+            cron_file: "conflicting-cron"
+          - name: "cron-absent"
+            state: "absent"
+            cron_file: "conflicting-cron"
+  tasks:
+    - name: "Expect conflicting cron declarations to fail"
+      block:
+        - name: "Running role with conflicting cron declarations"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if conflicting cron declarations were accepted"
+          ansible.builtin.fail:
+            msg: "Conflicting cron declarations were accepted"
+      rescue:
+        - name: "Asserting conflicting cron declaration rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Dovecot cron_file values must be unique" in
+                (ansible_failed_result.msg | default(''))
+
+- name: "Reject unowned explicit absent cron file"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "unowned-cron"
+            state: "absent"
+            cron_file: "unowned-cron"
+  pre_tasks:
+    - name: "Creating unowned cron file fixture"
+      ansible.builtin.file:
+        path: "/etc/cron.d"
+        state: "directory"
+        mode: "0755"
+    - name: "Writing unowned cron file fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/unowned-cron"
+        content: "0 0 * * * root /bin/true\n"
+        mode: "0644"
+  tasks:
+    - name: "Expect unowned explicit absent cron file to fail"
+      block:
+        - name: "Running role with an unowned explicit absent cron file"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if unowned cron file was removed"
+          ansible.builtin.fail:
+            msg: "Unowned cron file was removed"
+      rescue:
+        - name: "Asserting unowned cron file rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Refusing to remove unowned Dovecot cron file unowned-cron" in
+                (ansible_failed_result.msg | default(''))
+
+- name: "Reject changed explicitly absent cron file"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "changed-cron"
+            state: "absent"
+            cron_file: "changed-cron"
+  pre_tasks:
+    - name: "Writing changed cron file fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/changed-cron"
+        content: "original cron content\n"
+        mode: "0644"
+    - name: "Reading changed cron fixture identity"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/changed-cron"
+      register: dovecot_changed_cron_stat
+    - name: "Writing identity-bound marker before change"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/.changed-cron.idarsi-managed"
+        content: >-
+          {{ {'path': '/etc/cron.d/changed-cron', 'inode': dovecot_changed_cron_stat.stat.inode,
+              'checksum': dovecot_changed_cron_stat.stat.checksum,
+              'size': dovecot_changed_cron_stat.stat.size,
+              'mode': dovecot_changed_cron_stat.stat.mode} | to_json }}
+        mode: "0600"
+    - name: "Changing cron file after marker creation"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/changed-cron"
+        content: "changed cron content\n"
+        mode: "0644"
+  tasks:
+    - name: "Expect changed cron file to fail closed"
+      block:
+        - name: "Running role with changed cron file"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if changed cron file was removed"
+          ansible.builtin.fail:
+            msg: "Changed cron file was removed"
+      rescue:
+        - name: "Checking changed cron file remains intact"
+          ansible.builtin.stat:
+            path: "/etc/cron.d/changed-cron"
+          register: dovecot_changed_cron_after
+        - name: "Asserting changed cron file rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Refusing to remove unowned or changed Dovecot cron file changed-cron"
+                in (ansible_failed_result.msg | default(''))
+              - >-
+                (ansible_failed_result.msg | default('')) is search(
+                'Refusing to remove unowned or changed Dovecot cron file changed-cron')
+              - dovecot_changed_cron_after.stat.exists
+
+- name: "Reject malformed explicitly absent cron marker"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "malformed-cron"
+            state: "absent"
+            cron_file: "malformed-cron"
+  pre_tasks:
+    - name: "Writing malformed marker cron fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/malformed-cron"
+        content: "0 0 * * * root /bin/true\n"
+        mode: "0644"
+    - name: "Writing malformed ownership marker"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/.malformed-cron.idarsi-managed"
+        content: "not-json\n"
+        mode: "0600"
+  tasks:
+    - name: "Expect malformed marker to fail closed"
+      block:
+        - name: "Running role with malformed marker"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if malformed-marker cron file was removed"
+          ansible.builtin.fail:
+            msg: "Malformed-marker cron file was removed"
+      rescue:
+        - name: "Checking malformed-marker cron file remains intact"
+          ansible.builtin.stat:
+            path: "/etc/cron.d/malformed-cron"
+          register: dovecot_malformed_cron_stat
+        - name: "Asserting malformed marker rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Refusing to remove malformed Dovecot cron ownership manifest malformed-cron"
+                in (ansible_failed_result.msg | default(''))
+              - dovecot_malformed_cron_stat.stat.exists
+
+- name: "Reject unsafe explicitly absent cron marker permissions"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "permissions-cron"
+            state: "absent"
+            cron_file: "permissions-cron"
+  pre_tasks:
+    - name: "Writing invalid-permissions cron fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/permissions-cron"
+        content: "0 0 * * * root /bin/true\n"
+        mode: "0644"
+    - name: "Writing insecure ownership marker"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/.permissions-cron.idarsi-managed"
+        content: "{}\n"
+        mode: "0644"
+  tasks:
+    - name: "Expect invalid marker permissions to fail closed"
+      block:
+        - name: "Running role with invalid marker permissions"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if invalid-permissions cron file was removed"
+          ansible.builtin.fail:
+            msg: "Invalid-permissions cron file was removed"
+      rescue:
+        - name: "Checking invalid-permissions cron file remains intact"
+          ansible.builtin.stat:
+            path: "/etc/cron.d/permissions-cron"
+          register: dovecot_permissions_cron_stat
+        - name: "Asserting invalid marker permissions rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Refusing to remove unowned or changed Dovecot cron file permissions-cron"
+                in (ansible_failed_result.msg | default(''))
+              - dovecot_permissions_cron_stat.stat.exists

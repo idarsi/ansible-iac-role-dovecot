@@ -1,0 +1,118 @@
+---
+- name: "Remove an explicit absent cron record without cronie"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "fresh-absent-cron"
+            state: "absent"
+            cron_file: "fresh-absent-cron"
+  pre_tasks:
+    - name: "Recording initial package state"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Saving initial cronie package state"
+      ansible.builtin.set_fact:
+        dovecot_cronie_initial: "{{ 'cronie' in ansible_facts.packages }}"
+    - name: "Creating cron directory for absent fixture"
+      ansible.builtin.file:
+        path: "/etc/cron.d"
+        state: "directory"
+        mode: "0755"
+      tags:
+        - molecule-idempotence-notest
+    - name: "Creating role-owned cron fixture"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/fresh-absent-cron"
+        content: "0 0 * * * root /bin/true\n"
+        mode: "0644"
+      tags:
+        - molecule-idempotence-notest
+    - name: "Reading role-owned cron fixture identity"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/fresh-absent-cron"
+      register: dovecot_fresh_absent_cron_stat
+      tags:
+        - molecule-idempotence-notest
+    - name: "Creating identity-bound role ownership marker"
+      ansible.builtin.copy:
+        dest: "/etc/cron.d/.fresh-absent-cron.idarsi-managed"
+        content: >-
+          {{ {'path': '/etc/cron.d/fresh-absent-cron', 'inode': dovecot_fresh_absent_cron_stat.stat.inode,
+              'checksum': dovecot_fresh_absent_cron_stat.stat.checksum,
+              'size': dovecot_fresh_absent_cron_stat.stat.size,
+              'mode': dovecot_fresh_absent_cron_stat.stat.mode} | to_json }}
+        mode: "0600"
+      tags:
+        - molecule-idempotence-notest
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Recording final package state"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Checking explicit absent cron did not install cronie"
+      ansible.builtin.assert:
+        that:
+          - ("cronie" in ansible_facts.packages) == dovecot_cronie_initial
+          - "'cronie' not in ansible_facts.packages"
+        fail_msg: "Explicit absent cron handling changed cronie package state"
+
+- name: "Recover a managed cron file deleted externally"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "recovery-cron"
+            job: "/bin/true"
+            cron_file: "recovery-cron"
+  roles:
+    - role: ansible-iac-role-dovecot
+
+- name: "Recreate a managed cron file after external deletion"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "recovery-cron"
+            job: "/bin/true"
+            cron_file: "recovery-cron"
+  pre_tasks:
+    - name: "Deleting managed cron file externally"
+      ansible.builtin.file:
+        path: "/etc/cron.d/recovery-cron"
+        state: "absent"
+      tags:
+        - molecule-idempotence-notest
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Checking recovered cron file"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/recovery-cron"
+      register: dovecot_recovery_cron_stat
+    - name: "Checking refreshed recovery marker"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/.recovery-cron.idarsi-managed"
+      register: dovecot_recovery_marker_stat
+    - name: "Asserting managed cron recovery"
+      ansible.builtin.assert:
+        that:
+          - dovecot_recovery_cron_stat.stat.exists
+          - dovecot_recovery_marker_stat.stat.exists
+          - dovecot_recovery_marker_stat.stat.mode == "0600"

@@ -368,7 +368,7 @@
       - dovecot_cron_record.name is string
       - dovecot_cron_record.cron_file is defined
       - dovecot_cron_record.cron_file is string
-      - dovecot_cron_record.cron_file is match('^[A-Za-z0-9_.-]+$')
+      - dovecot_cron_record.cron_file is match('^[A-Za-z0-9_-][A-Za-z0-9_.-]*$')
       - state in ['absent', 'uninstall'] or (dovecot_cron_record['state'] | default('present')) == 'absent' or dovecot_cron_record.job is defined
       - dovecot_cron_record.job is not defined or dovecot_cron_record.job is string
       - dovecot_cron_record.user is not defined or dovecot_cron_record.user is string
@@ -394,6 +394,15 @@
   loop_control:
     loop_var: dovecot_cron_record
     label: "{{ dovecot_cron_record.name | default('invalid') }}"
+
+- name: "Rejecting duplicate Dovecot cron files"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (iac_blueprint.dovecot.cron | default([]) |
+        map(attribute='cron_file') | list | unique | length) ==
+        (iac_blueprint.dovecot.cron | default([]) | length)
+    fail_msg: "Dovecot cron_file values must be unique; present and absent records cannot target the same file"
 
 - name: "Guarding destructive Dovecot resource paths"
   ansible.builtin.assert:

@@ -1,5 +1,5 @@
 ---
-- name: "Verify an all-absent cron declaration"
+- name: "Remove the role-created cron file"
   hosts: all
   become: false
   vars:
@@ -13,46 +13,36 @@
             state: "absent"
             cron_file: "dovecot_removed_only"
   pre_tasks:
-    - name: "Recording whether cronie is pre-installed"
+    - name: "Recording cronie state before explicit absent cleanup"
       ansible.builtin.package_facts:
         manager: "auto"
-    - name: "Recording initial cronie package state"
+    - name: "Saving cronie state before explicit absent cleanup"
       ansible.builtin.set_fact:
-        dovecot_cronie_was_installed: "{{ 'cronie' in ansible_facts.packages }}"
-    - name: "Ensuring cron directory exists for the stale entry fixture"
-      ansible.builtin.file:
-        path: /etc/cron.d
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      tags:
-        - molecule-idempotence-notest
-    - name: "Precreating cron entry targeted for removal"
-      ansible.builtin.copy:
-        dest: /etc/cron.d/dovecot_removed_only
-        owner: root
-        group: root
-        mode: "0644"
-        content: "#Ansible: dovecot_removed_only\n0 0 * * * root /bin/true\n"
-      tags:
-        - molecule-idempotence-notest
+        dovecot_cronie_before_absent: "{{ 'cronie' in ansible_facts.packages }}"
   roles:
     - role: ansible-iac-role-dovecot
+  tasks:
+    - name: "Repeating explicit absent cron cleanup"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
   post_tasks:
-    - name: "Checking cronie package state after all-absent cron dispatch"
+    - name: "Checking cronie state after explicit absent cleanup"
       ansible.builtin.package_facts:
         manager: "auto"
-    - name: "Checking removed cron entry"
+    - name: "Checking removed role-created cron file"
       ansible.builtin.stat:
         path: /etc/cron.d/dovecot_removed_only
       register: dovecot_removed_only_cron_stat
-    - name: "Asserting all-absent cron dispatch is safe"
+    - name: "Checking removed cron ownership marker"
+      ansible.builtin.stat:
+        path: /etc/cron.d/.dovecot_removed_only.idarsi-managed
+      register: dovecot_removed_only_marker_stat
+    - name: "Asserting explicit absent cron cleanup"
       ansible.builtin.assert:
         that:
-          - ("cronie" in ansible_facts.packages) == dovecot_cronie_was_installed
+          - ("cronie" in ansible_facts.packages) == dovecot_cronie_before_absent
           - not dovecot_removed_only_cron_stat.stat.exists
-        fail_msg: "All-absent cron dispatch changed cronie state or failed to remove the entry"
+          - not dovecot_removed_only_marker_stat.stat.exists
 
 - name: Converge
   hosts: all
@@ -100,9 +90,6 @@
             hour: "3"
             job: "/bin/true"
             cron_file: "dovecot_heartbeat"
-          - name: "dovecot_removed"
-            state: "absent"
-            cron_file: "dovecot_removed"
         git:
           - repo: "/tmp/dovecot-molecule-source"
             dest: "/var/lib/dovecot-config"
@@ -190,16 +177,6 @@
         group: root
         mode: "0600"
         content: "dovecot legacy bind data\n"
-      tags:
-        - molecule-idempotence-notest
-
-    - name: "Precreating cron entry targeted for removal"
-      ansible.builtin.copy:
-        dest: /etc/cron.d/dovecot_removed
-        owner: root
-        group: root
-        mode: "0644"
-        content: "#Ansible: dovecot_removed\n0 0 * * * root /bin/true\n"
       tags:
         - molecule-idempotence-notest
 

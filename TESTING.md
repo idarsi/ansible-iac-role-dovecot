@@ -12,6 +12,8 @@ Platform/image               | Ansible or application versions | Molecule scenar
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `default` | Dovecot installation, configuration, service startup, shared filesystem resources, bind migration, cron, and local Git checkout
 Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `rocky10` | Same Dovecot and shared-task coverage on Rocky Linux 10 UBI
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged/not-installed cronie state
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall cron entry-level removal from unmarked files while preserving unrelated entries
 
 The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Podman,
 systemd, and privileged mode so that the bind-mount fixture can exercise
@@ -21,7 +23,10 @@ RHEL 9 and RHEL 10 remain supported target operating systems for the role, but
 they are not included in the current Molecule matrix because the public UBI
 images do not provide the Dovecot package without entitled RHEL repositories.
 
-There are currently no separate absent-state scenarios in this repository.
+Global cron `absent` and `uninstall` behavior is covered in the dedicated
+`global_absent` scenario with disposable fixtures. The default scenario is the
+normal Dovecot baseline plus role-created-marker lifecycle coverage; it does
+not run destructive global states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
 and managed configuration-path guardrails. The validation scenario covers
 required TLS credentials, equal bind paths, unsafe cleanup paths, and rejected
@@ -30,10 +35,12 @@ fstab, fixture, and generated-configuration state to ensure validation is
 non-mutating without assuming Dovecot is installed. Bind cleanup validation
 also checks source/target ownership, rejects duplicate bind targets and
 duplicate or mismatched fstab entries, and rejects symlink purge sources. The
-minimal validation input
-includes an absent cron record with only `name`, `cron_file`, and `state`,
-preserving the documented removal form. Full absent/uninstall convergence is
-not part of this lightweight validation scenario. The snapshot is paired with
+minimal validation input includes an absent cron record with only `name`,
+`cron_file`, and `state`, preserving the documented removal form. The default
+baseline also exercises that explicit absent record without installing
+`cronie`; its role-local path removes the declared role-managed
+`/etc/cron.d/<cron_file>` whole file only when role ownership is proven. Full Dovecot absent/uninstall convergence is not
+part of this lightweight validation scenario. The snapshot is paired with
 a per-converge token stored in Molecule's ephemeral directory; verify requires
 the exact token match and fails if the snapshot or token is unavailable.
 The token is scoped to the container and Molecule ephemeral directory because
@@ -94,11 +101,11 @@ the shared environment is not a reproduction of CI's collection selection.
 This repository does not modify the shared environment. CI always installs the
 pinned collections into its isolated runner environment.
 
-Pull requests run syntax, production-profile lint, validation, and the Rocky
-Linux 9 `default` baseline. The pull-request workflow is also manually
+Pull requests run syntax, production-profile lint, validation, the Rocky Linux
+9 `default` baseline, and `cron_absent`. The pull-request workflow is also manually
 dispatchable and runs that same fast set. A scheduled run occurs every
-Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default` and
-`rocky10` baseline jobs in parallel. The scheduled workflow is manually
+Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default`,
+`rocky10`, and `global_absent` baseline jobs in parallel. The scheduled workflow is manually
 dispatchable and runs the same quality and baseline jobs. No GitHub Actions
 job claims RHEL execution; RHEL 9
 and 10 remain supported targets but are not automatically tested because the
@@ -110,10 +117,9 @@ repositories.
 - `molecule/default` and `molecule/rocky10` validate that the role installs the
   Dovecot package,
   writes the generated configuration, and starts the Dovecot service.
-- `molecule/default` first runs a focused `state: present` lifecycle check with
-  an all-absent cron declaration. It precreates the entry, verifies removal,
-  and compares cronie package state before and after so the check remains
-  valid when the base image already contains cronie.
+- `molecule/default` prepares a role-created cron file and marker, then runs a
+  focused explicit-absent cleanup. The fixture is prepared outside converge so
+  Molecule idempotence does not recreate it after removal.
 - `molecule/validation` runs `state: validate` for a minimal blueprint and
   asserts actionable failures for equal bind paths, incomplete TLS, invalid
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
@@ -128,10 +134,25 @@ repositories.
   directory, mounts the source at the target path, and writes the expected
   `/etc/fstab` entry.
 - The cron fixture verifies that the shared cron wrapper creates
-  `/etc/cron.d/dovecot_heartbeat` with the expected command and routes an
-  pre-existing `/etc/cron.d/dovecot_removed` entry to the shared removal
-  wrapper. The absent record has no job, and the fixture is excluded from
-  idempotence reruns so the second converge remains unchanged.
+  `/etc/cron.d/dovecot_heartbeat` with the expected command. An explicit absent
+  record has no job and is removed by the role-local whole-file path after the
+  role creates and validates its identity-bound marker; both file and marker
+  are removed. Repeating the absent operation with both already absent is a
+  successful no-op. The fixture is excluded from idempotence reruns so the
+  second converge remains unchanged.
+- `molecule/validation` rejects duplicate/conflicting `cron_file` declarations
+  and verifies that an explicit absent record fails closed when its cron file
+  has no valid role-owned marker. It also covers changed files, malformed
+  markers, and insecure marker permissions.
+- `molecule/global_absent` exercises global `absent` and `uninstall` with
+  disposable unmarked cron files, verifying shared entry-level removal
+  preserves unrelated entries instead of deleting the whole file. This does
+  not claim full Dovecot lifecycle absent/uninstall coverage.
+- `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
+  explicit absent cron record removes its marked file without installing or
+  changing `cronie`; it also verifies that a role-managed file deleted
+  externally is recreated and its manifest refreshed. It does not cover full
+  Dovecot lifecycle removal.
 - The Git fixture creates a local repository inside the test container and
   verifies that the shared Git wrapper clones its committed file to
   `/var/lib/dovecot-config`.
@@ -142,10 +163,10 @@ repositories.
   file, package, active service, shared resources, bind state, cron file, and
   Git checkout.
 
-The current scenarios do not test the destructive `absent` or `uninstall`
-flows, SELinux-specific shared filesystem records, or remote Git
-authentication. Those should be added as separate scenarios when the role
-needs those guarantees.
+The current scenarios do not test full Dovecot lifecycle `absent` or
+`uninstall` convergence, SELinux-specific shared filesystem records, or remote
+Git authentication. The `global_absent` scenario covers only shared cron
+entry-level behavior for those states.
 
 ## Running tests
 
@@ -159,13 +180,15 @@ ANSIBLE_ROLES_PATH=".." ansible-lint --profile production
 molecule test -s validation
 molecule test -s default
 molecule test -s rocky10
+molecule test -s cron_absent
+molecule test -s global_absent
 ```
 
-The first four commands are the pull-request jobs (the Rocky Linux 9 baseline
-is the fourth command). The last command is included only in the scheduled and
-manual baseline matrix. The workflows install the shared task dependency from
+The validation, default, and `cron_absent` commands are pull-request coverage;
+the Rocky Linux 10 and `global_absent` commands are scheduled/manual coverage.
+The workflows install the shared task dependency from
 the recursive submodule checkout and use `ansible-galaxy collection install`
-with `molecule/default/collections.yml` or `molecule/rocky10/collections.yml`.
+with the manifest belonging to each selected scenario.
 
 Run one scenario from the role directory:
 
@@ -176,7 +199,7 @@ molecule test -s default
 Run the complete current matrix:
 
 ```bash
-for scenario in default rocky10 validation; do
+for scenario in default rocky10 validation cron_absent global_absent; do
   molecule test -s "$scenario" || exit 1
 done
 ```

@@ -1,0 +1,98 @@
+---
+- name: "Checking cron file before management"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/{{ dovecot_cron_present_record.cron_file }}"
+  register: dovecot_cron_file_before
+
+- name: "Checking existing cron ownership marker"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/.{{ dovecot_cron_present_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_marker_before
+
+- name: "Reading existing cron ownership marker"
+  ansible.builtin.slurp:
+    src: "/etc/cron.d/.{{ dovecot_cron_present_record.cron_file }}.idarsi-managed"
+  register: dovecot_cron_marker_before_content
+  when: dovecot_cron_marker_before.stat.exists
+
+- name: "Parsing existing cron ownership marker"
+  when: dovecot_cron_marker_before.stat.exists
+  block:
+    - name: "Loading existing cron ownership manifest"
+      ansible.builtin.set_fact:
+        dovecot_cron_marker_data: "{{ dovecot_cron_marker_before_content.content | b64decode | from_json }}"
+  rescue:
+    - name: "Rejecting malformed existing cron ownership marker"
+      ansible.builtin.fail:
+        msg: "Refusing to manage cron file with a malformed ownership marker {{ dovecot_cron_present_record.cron_file }}"
+- name: "Rejecting an unowned existing cron file"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_marker_before.stat.exists
+    fail_msg: "Refusing to manage unowned existing cron file {{ dovecot_cron_present_record.cron_file }}"
+  when: dovecot_cron_file_before.stat.exists
+
+- name: "Rejecting an invalid existing cron ownership marker"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_marker_before.stat.isreg
+      - dovecot_cron_marker_before.stat.pw_name == 'root'
+      - dovecot_cron_marker_before.stat.gr_name == 'root'
+      - dovecot_cron_marker_before.stat.mode == '0600'
+      - >-
+        (['path', 'inode', 'checksum', 'size', 'mode'] |
+        difference(dovecot_cron_marker_data.keys()) | length) == 0
+      - >-
+        (dovecot_cron_marker_data.keys() |
+        difference(['path', 'inode', 'checksum', 'size', 'mode']) | length) == 0
+      - dovecot_cron_marker_data.inode is integer
+      - dovecot_cron_marker_data.checksum is string
+      - dovecot_cron_marker_data.size is integer
+      - dovecot_cron_marker_data.mode is string
+      - dovecot_cron_marker_data.path == '/etc/cron.d/' ~ dovecot_cron_present_record.cron_file
+    fail_msg: "Refusing to manage cron file with an invalid ownership marker {{ dovecot_cron_present_record.cron_file }}"
+  when: dovecot_cron_marker_before.stat.exists
+
+- name: "Rejecting an ownership marker that does not match the existing cron file"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_file_before.stat.isreg
+      - dovecot_cron_marker_data.inode | int == dovecot_cron_file_before.stat.inode | int
+      - >-
+        dovecot_cron_marker_data.checksum ==
+        dovecot_cron_file_before.stat.checksum
+      - dovecot_cron_marker_data.size | int == dovecot_cron_file_before.stat.size | int
+      - dovecot_cron_marker_data.mode == dovecot_cron_file_before.stat.mode
+    fail_msg: "Refusing to manage cron file with a mismatched ownership marker {{ dovecot_cron_present_record.cron_file }}"
+  when:
+    - dovecot_cron_file_before.stat.exists
+    - dovecot_cron_marker_before.stat.exists
+
+- name: "Including shared cron present tasks"
+  ansible.builtin.include_tasks: shared/cron_present.yml
+  vars:
+    iac_cron:
+      - "{{ dovecot_cron_present_record }}"
+
+- name: "Checking cron file after management"
+  ansible.builtin.stat:
+    path: "/etc/cron.d/{{ dovecot_cron_present_record.cron_file }}"
+  register: dovecot_cron_file_after
+
+- name: "Creating or refreshing role-owned cron manifest"
+  ansible.builtin.copy:
+    content: >-
+      {{ {
+        'path': '/etc/cron.d/' ~ dovecot_cron_present_record.cron_file,
+        'inode': dovecot_cron_file_after.stat.inode,
+        'checksum': dovecot_cron_file_after.stat.checksum,
+        'size': dovecot_cron_file_after.stat.size,
+        'mode': dovecot_cron_file_after.stat.mode
+      } | to_json }}
+    dest: "/etc/cron.d/.{{ dovecot_cron_present_record.cron_file }}.idarsi-managed"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  when:
+    - dovecot_cron_file_after.stat.exists
+    - not dovecot_cron_file_before.stat.exists or dovecot_cron_marker_before.stat.exists

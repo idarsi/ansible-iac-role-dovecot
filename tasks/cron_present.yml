@@ -1,10 +1,7 @@
 ---
-- name: "Including shared cron present tasks"
-  ansible.builtin.include_tasks: shared/cron_present.yml
+- name: "Managing present cron record and ownership manifest"
+  ansible.builtin.include_tasks: cron_present_record.yml
   loop: "{{ dovecot_cron_records }}"
   loop_control:
     loop_var: dovecot_cron_present_record
     label: "{{ dovecot_cron_present_record.name | default('invalid') }}"
-  vars:
-    iac_cron:
-      - "{{ dovecot_cron_present_record }}"

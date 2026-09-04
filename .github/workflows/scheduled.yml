@@ -77,7 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ["default", "rocky10"]
+        scenario: ["default", "rocky10", "global_absent"]
     steps:
       - name: "Check out repository and shared tasks"
         uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" # v4.2.2

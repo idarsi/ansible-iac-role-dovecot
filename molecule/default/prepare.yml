@@ -1,0 +1,37 @@
+---
+- name: "Create a role-owned cron file for lifecycle coverage"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "dovecot_removed_only"
+            job: "/bin/true"
+            cron_file: "dovecot_removed_only"
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Checking role-created cron file"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/dovecot_removed_only"
+      register: dovecot_removed_only_cron_stat
+    - name: "Checking role-created cron ownership marker"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/.dovecot_removed_only.idarsi-managed"
+      register: dovecot_removed_only_marker_stat
+    - name: "Reading role-created cron ownership marker"
+      ansible.builtin.slurp:
+        src: "/etc/cron.d/.dovecot_removed_only.idarsi-managed"
+      register: dovecot_removed_only_marker_content
+    - name: "Asserting role-created cron ownership"
+      ansible.builtin.assert:
+        that:
+          - dovecot_removed_only_cron_stat.stat.exists
+          - dovecot_removed_only_marker_stat.stat.exists
+          - dovecot_removed_only_marker_stat.stat.mode == "0600"
+          - dovecot_removed_only_marker_content.content | b64decode is search('"inode":')
+        fail_msg: "Role-created cron file or ownership marker is missing"
