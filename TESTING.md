@@ -117,9 +117,9 @@ repositories.
 - `molecule/default` and `molecule/rocky10` validate that the role installs the
   Dovecot package,
   writes the generated configuration, and starts the Dovecot service.
-- `molecule/default` prepares a role-created cron file and marker, then runs a
-  focused explicit-absent cleanup. The fixture is prepared outside converge so
-  Molecule idempotence does not recreate it after removal.
+- `molecule/default` is limited to the normal Dovecot baseline convergence and
+  verifies the present cron file and its restrictive ownership marker. It does
+  not run destructive lifecycle states.
 - `molecule/validation` runs `state: validate` for a minimal blueprint and
   asserts actionable failures for equal bind paths, incomplete TLS, invalid
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
@@ -134,12 +134,9 @@ repositories.
   directory, mounts the source at the target path, and writes the expected
   `/etc/fstab` entry.
 - The cron fixture verifies that the shared cron wrapper creates
-  `/etc/cron.d/dovecot_heartbeat` with the expected command. An explicit absent
-  record has no job and is removed by the role-local whole-file path after the
-  role creates and validates its identity-bound marker; both file and marker
-  are removed. Repeating the absent operation with both already absent is a
-  successful no-op. The fixture is excluded from idempotence reruns so the
-  second converge remains unchanged.
+  `/etc/cron.d/dovecot_heartbeat` with the expected command and that the role
+  creates its restrictive ownership marker. The default converge has no absent
+  cron declaration, so its idempotence run remains stable.
 - `molecule/validation` rejects duplicate/conflicting `cron_file` declarations
   and verifies that an explicit absent record fails closed when its cron file
   has no valid role-owned marker. It also covers changed files, malformed

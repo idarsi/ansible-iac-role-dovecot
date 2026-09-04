@@ -55,10 +55,15 @@
         path: "{{ dovecot_cron_file }}"
       register: dovecot_cron_file_check
 
-    - name: "Checking explicitly absent cron file"
+    - name: "Checking shared cron ownership marker"
       ansible.builtin.stat:
-        path: "/etc/cron.d/dovecot_removed"
-      register: dovecot_absent_cron_file_check
+        path: "/etc/cron.d/.dovecot_heartbeat.idarsi-managed"
+      register: dovecot_cron_marker_check
+
+    - name: "Reading shared cron ownership marker"
+      ansible.builtin.slurp:
+        src: "/etc/cron.d/.dovecot_heartbeat.idarsi-managed"
+      register: dovecot_cron_marker_content
 
     - name: "Reading shared managed cron file"
       ansible.builtin.slurp:
@@ -121,7 +126,11 @@
           - dovecot_shared_file_check.stat.exists
           - (dovecot_shared_file_content.content | b64decode) == 'dovecot molecule shared fixture\n'
           - dovecot_cron_file_check.stat.exists
-          - not dovecot_absent_cron_file_check.stat.exists
+          - dovecot_cron_marker_check.stat.exists
+          - dovecot_cron_marker_check.stat.isreg
+          - dovecot_cron_marker_check.stat.mode == '0600'
+          - dovecot_cron_marker_content.content | b64decode is search('"path":')
+          - dovecot_cron_marker_content.content | b64decode is search('"checksum":')
           - (dovecot_cron_file_content.content | b64decode) is search('/bin/true')
           - dovecot_git_fixture_file_check.stat.exists
           - (dovecot_git_fixture_content.content | b64decode) == 'dovecot molecule git fixture\n'

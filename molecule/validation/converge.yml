@@ -522,7 +522,8 @@
               {{ [ansible_failed_result.msg | default(''),
                  (ansible_failed_task.args | default({})).fail_msg | default('')] +
                  (ansible_failed_result.results | default([]) |
-                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) +
+                 [ansible_failed_result | to_json] }}
         - name: "Asserting symlink purge source rejection"
           ansible.builtin.assert:
             that:
