@@ -1,0 +1,50 @@
+---
+- name: "Checking live bind mount for declared source"
+  ansible.builtin.command:
+    argv:
+      - "findmnt"
+      - "-n"
+      - "-M"
+      - "{{ dovecot_bind_absent_record.target }}"
+      - "-o"
+      - "SOURCE"
+  register: dovecot_bind_absent_mount
+  changed_when: false
+  failed_when: false
+
+- name: "Rejecting an unreadable bind mount probe"
+  ansible.builtin.assert:
+    that: dovecot_bind_absent_mount.rc in [0, 1]
+    fail_msg: "Unable to safely inspect bind mount {{ dovecot_bind_absent_record.target }}"
+
+- name: "Resetting fstab entries for declared bind target"
+  ansible.builtin.set_fact:
+    dovecot_bind_absent_fstab_matches: []
+
+- name: "Collecting fstab entries for declared bind target"
+  ansible.builtin.set_fact:
+    dovecot_bind_absent_fstab_matches: "{{ dovecot_bind_absent_fstab_matches + [dovecot_bind_absent_fstab_line] }}"
+  loop: "{{ dovecot_bind_absent_fstab_lines | default([]) }}"
+  loop_control:
+    loop_var: dovecot_bind_absent_fstab_line
+  when:
+    - dovecot_bind_absent_fstab_line.split() | length >= 2
+    - dovecot_bind_absent_fstab_line.split()[1] == dovecot_bind_absent_record.target
+
+- name: "Guarding declared bind removal scope"
+  ansible.builtin.assert:
+    that:
+      - dovecot_bind_absent_mount.rc != 0 or (dovecot_bind_absent_mount.stdout | trim) == dovecot_bind_absent_record.source
+      - >-
+        dovecot_bind_absent_fstab_matches | length <= 1
+      - >-
+        dovecot_bind_absent_fstab_matches | length == 0 or
+        (dovecot_bind_absent_fstab_matches | length == 1 and
+        dovecot_bind_absent_fstab_matches[0].split() | length >= 4 and
+        dovecot_bind_absent_fstab_matches[0].split()[0] == dovecot_bind_absent_record.source and
+        dovecot_bind_absent_fstab_matches[0].split()[1] == dovecot_bind_absent_record.target and
+        'bind' in dovecot_bind_absent_fstab_matches[0].split()[3].split(','))
+    fail_msg: >-
+      Refusing to remove bind {{ dovecot_bind_absent_record.target }} because
+      its live mount or fstab entry is not owned by the declared source/target
+      pair

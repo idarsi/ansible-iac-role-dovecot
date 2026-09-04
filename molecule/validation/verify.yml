@@ -1,0 +1,154 @@
+---
+- name: "Verify validation did not mutate configuration"
+  hosts: all
+  become: false
+  vars:
+    dovecot_validation_token_path: >-
+      {{ (lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') | default('/tmp', true)) ~
+      '/dovecot-validation-token' }}
+  tasks:
+    - name: "Checking current-run validation token"
+      ansible.builtin.stat:
+        path: "{{ dovecot_validation_token_path }}"
+      delegate_to: "localhost"
+      register: dovecot_validation_token_stat
+      run_once: true  # noqa run-once[task]
+    - name: "Reading current-run validation token"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_validation_token_path }}"
+      delegate_to: "localhost"
+      register: dovecot_validation_token_content
+      run_once: true  # noqa run-once[task]
+      when: dovecot_validation_token_stat.stat.exists
+    - name: "Checking persisted validation snapshot freshness"
+      ansible.builtin.stat:
+        path: "/tmp/dovecot-validation-snapshot.json"
+      register: dovecot_validation_snapshot_stat
+    - name: "Reading persisted validation snapshot"
+      ansible.builtin.slurp:
+        path: "/tmp/dovecot-validation-snapshot.json"
+      register: dovecot_validation_snapshot_content
+      when: dovecot_validation_snapshot_stat.stat.exists
+    - name: "Rejecting missing or stale validation snapshot"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_snapshot_stat.stat.exists
+          - dovecot_validation_snapshot_stat.stat.mtime is defined
+          - >-
+            (((ansible_date_time.epoch | int) -
+            (dovecot_validation_snapshot_stat.stat.mtime | int)) | abs) <= 3600
+          - dovecot_validation_snapshot_content.content is defined
+        fail_msg: "Validation snapshot is missing, unreadable, or stale"
+    - name: "Loading persisted validation snapshot"
+      ansible.builtin.set_fact:
+        dovecot_validation_snapshot: "{{ dovecot_validation_snapshot_content.content | b64decode | from_json }}"
+        dovecot_validation_initial_package: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).package }}"
+        dovecot_validation_initial_service: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).service }}"
+        dovecot_validation_initial_fstab_exists: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fstab_exists }}"
+        dovecot_validation_initial_fstab: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fstab }}"
+        dovecot_validation_initial_fixtures: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixtures }}"
+        dovecot_validation_initial_fixture_mode: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixture_mode }}"
+        dovecot_validation_initial_fixture_uid: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixture_uid }}"
+        dovecot_validation_initial_fixture_gid: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixture_gid }}"
+        dovecot_validation_initial_fixture_content_value: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixture_content }}"
+        dovecot_validation_initial_config_exists: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_exists }}"
+        dovecot_validation_initial_config_type: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_type }}"
+        dovecot_validation_initial_config_mode: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_mode }}"
+        dovecot_validation_initial_config_uid: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_uid }}"
+        dovecot_validation_initial_config_gid: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_gid }}"
+        dovecot_validation_initial_config_size: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_size }}"
+        dovecot_validation_initial_config_content_value: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).config_content }}"
+        dovecot_validation_converge_marker: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).converge_marker }}"
+        dovecot_validation_initial_fixture_snapshots: "{{ (dovecot_validation_snapshot_content.content | b64decode | from_json).fixture_snapshots }}"
+    - name: "Asserting validation snapshot has a fresh converge marker"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_token_stat.stat.exists
+          - dovecot_validation_snapshot_stat.stat.exists
+          - dovecot_validation_snapshot is mapping
+          - >-
+            (['package', 'service', 'fstab_exists', 'fstab', 'fixtures',
+            'fixture_snapshots', 'config_exists', 'config_content',
+            'converge_marker'] | difference(dovecot_validation_snapshot.keys()) | length) == 0
+          - dovecot_validation_converge_marker is string
+          - dovecot_validation_converge_marker is match('^[0-9]+$')
+          - >-
+            dovecot_validation_converge_marker ==
+            (dovecot_validation_token_content.content | b64decode | trim)
+    - name: "Collecting final package state"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Collecting final service state"
+      ansible.builtin.service_facts:
+    - name: "Collecting final fstab state"
+      ansible.builtin.stat:
+        path: "/etc/fstab"
+      register: dovecot_validation_final_fstab_stat
+    - name: "Reading final fstab when present"
+      ansible.builtin.slurp:
+        path: "/etc/fstab"
+      register: dovecot_validation_final_fstab_content
+      when: dovecot_validation_final_fstab_stat.stat.exists
+    - name: "Collecting final validation fixture state"
+      ansible.builtin.set_fact:
+        dovecot_validation_fixture_snapshots: []
+    - name: "Snapshotting final validation fixtures"
+      ansible.builtin.include_tasks: collect_fixture_snapshot.yml
+      loop:
+        - "/srv/data/dovecot-mail"
+        - "/var/lib/dovecot-config"
+        - "/tmp/dovecot-shared"
+      loop_control:
+        loop_var: dovecot_validation_fixture_path
+    - name: "Saving final validation fixture snapshots"
+      ansible.builtin.set_fact:
+        dovecot_validation_final_fixture_snapshots: "{{ dovecot_validation_fixture_snapshots }}"
+    - name: "Collecting final validation fixture state (legacy checks)"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/tmp/dovecot-shared"
+        - "/srv/data/dovecot-mail"
+        - "/var/lib/dovecot-config"
+      register: dovecot_validation_final_fixture_stats
+    - name: "Reading final validation fixture content"
+      ansible.builtin.slurp:
+        path: "/tmp/dovecot-validation-fixture"
+      register: dovecot_validation_final_fixture_content
+    - name: "Checking created validation fixture metadata"
+      ansible.builtin.stat:
+        path: "/tmp/dovecot-validation-fixture"
+      register: dovecot_validation_created_fixture_stat
+    - name: "Checking managed configuration state"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_validation_final_config
+    - name: "Reading final managed configuration when present"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_validation_final_config_content
+      when: dovecot_validation_final_config.stat.exists
+    - name: "Asserting validation-only execution was non-mutating"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_final_config.stat.exists == dovecot_validation_initial_config_exists
+          - dovecot_validation_final_config.stat.isreg | default(false) == dovecot_validation_initial_config_type
+          - dovecot_validation_final_config.stat.mode | default('') == dovecot_validation_initial_config_mode
+          - dovecot_validation_final_config.stat.uid | default(-1) == dovecot_validation_initial_config_uid
+          - dovecot_validation_final_config.stat.gid | default(-1) == dovecot_validation_initial_config_gid
+          - dovecot_validation_final_config.stat.size | default(-1) == dovecot_validation_initial_config_size
+          - >-
+            not dovecot_validation_initial_config_exists or
+            dovecot_validation_final_config_content.content == dovecot_validation_initial_config_content_value
+          - (ansible_facts.packages.dovecot | default([])) == dovecot_validation_initial_package
+          - (ansible_facts.services['dovecot.service'] | default({})) == dovecot_validation_initial_service
+          - dovecot_validation_final_fstab_stat.stat.exists == dovecot_validation_initial_fstab_exists
+          - >-
+            not dovecot_validation_initial_fstab_exists or
+            dovecot_validation_final_fstab_content.content == dovecot_validation_initial_fstab
+          - (dovecot_validation_final_fixture_stats.results | map(attribute='stat.exists') | list) == dovecot_validation_initial_fixtures
+          - dovecot_validation_final_fixture_snapshots == dovecot_validation_initial_fixture_snapshots
+          - dovecot_validation_created_fixture_stat.stat.mode == '0640'
+          - dovecot_validation_created_fixture_stat.stat.uid == 0
+          - dovecot_validation_created_fixture_stat.stat.gid == 0
+          - dovecot_validation_final_fixture_content.content == 'dmFsaWRhdGlvbiBmaXh0dXJlCg=='

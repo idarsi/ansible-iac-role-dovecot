@@ -1,0 +1,5 @@
+---
+- name: "Removing managed Dovecot configuration"
+  ansible.builtin.file:
+    path: "{{ dovecot_idarsi_conf_path }}"
+    state: "absent"

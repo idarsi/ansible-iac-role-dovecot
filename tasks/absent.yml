@@ -14,6 +14,9 @@
 - name: "Ensuring Dovecot service is stopped"
   ansible.builtin.include_tasks: stopped.yml
 
+- name: "Ensuring managed Dovecot configuration is absent"
+  ansible.builtin.include_tasks: configuration_absent.yml
+
 - name: "Ensuring cron jobs are absent"
   ansible.builtin.include_tasks: cron_absent.yml
   when: (iac_cron | default([])) | length > 0

@@ -1,0 +1,57 @@
+---
+- name: "Collecting fixture metadata"
+  ansible.builtin.stat:
+    path: "{{ dovecot_validation_fixture_path }}"
+    checksum_algorithm: "sha256"
+  register: dovecot_validation_fixture_stat
+
+- name: "Rejecting unsupported fixture root types"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_validation_fixture_stat.stat.exists or dovecot_validation_fixture_stat.stat.isdir or dovecot_validation_fixture_stat.stat.isreg
+    fail_msg: "Validation fixture must be a regular file or directory: {{ dovecot_validation_fixture_path }}"
+
+- name: "Collecting directory fixture content"
+  ansible.builtin.find:
+    paths: "{{ dovecot_validation_fixture_path }}"
+    recurse: true
+    file_type: "any"
+    hidden: true
+    checksum_algorithm: "sha256"
+  register: dovecot_validation_fixture_directory_content
+  when: dovecot_validation_fixture_stat.stat.isdir | default(false)
+
+- name: "Rejecting incomplete directory fixture snapshot"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_validation_fixture_directory_content.failed | default(false)
+      - dovecot_validation_fixture_directory_content.skipped_paths is defined
+      - dovecot_validation_fixture_directory_content.skipped_paths | length == 0
+      - dovecot_validation_fixture_directory_content.files is defined
+    fail_msg: >-
+      Failed to capture the complete directory fixture snapshot for
+      {{ dovecot_validation_fixture_path }}
+  when: dovecot_validation_fixture_stat.stat.isdir | default(false)
+
+- name: "Collecting regular-file fixture content"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_validation_fixture_path }}"
+  register: dovecot_validation_fixture_file_content
+  when: dovecot_validation_fixture_stat.stat.isreg | default(false)
+
+- name: "Saving complete fixture snapshot"
+  ansible.builtin.set_fact:
+    # noqa jinja[spacing]
+    dovecot_validation_fixture_snapshots: "{{ dovecot_validation_fixture_snapshots | default([]) + [{
+        'path': dovecot_validation_fixture_path,
+        'exists': dovecot_validation_fixture_stat.stat.exists,
+        'isdir': dovecot_validation_fixture_stat.stat.isdir | default(false),
+        'isreg': dovecot_validation_fixture_stat.stat.isreg | default(false),
+        'mode': dovecot_validation_fixture_stat.stat.mode | default(''),
+        'uid': dovecot_validation_fixture_stat.stat.uid | default(-1),
+        'gid': dovecot_validation_fixture_stat.stat.gid | default(-1),
+        'size': dovecot_validation_fixture_stat.stat.size | default(-1),
+        'checksum': dovecot_validation_fixture_stat.stat.checksum | default(''),
+        'content': dovecot_validation_fixture_file_content.content | default(''),
+        'directory_content': (dovecot_validation_fixture_directory_content.files | default([]))
+      }] }}"

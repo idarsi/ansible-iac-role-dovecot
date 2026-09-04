@@ -1,0 +1,42 @@
+---
+- name: "Checking bind purge source without following symlinks"
+  ansible.builtin.stat:
+    path: "{{ dovecot_purge_bind_record.source }}"
+    follow: false
+  register: dovecot_purge_bind_source_stat
+
+- name: "Rejecting symlink bind purge source"
+  ansible.builtin.assert:
+    that: not dovecot_purge_bind_source_stat.stat.islnk
+    fail_msg: "Refusing to purge symlink bind source '{{ dovecot_purge_bind_record.source }}'"
+
+- name: "Resetting bind purge source path components"
+  ansible.builtin.set_fact:
+    dovecot_purge_source_prefixes: []
+
+- name: "Building bind purge source path components"
+  ansible.builtin.set_fact:
+    dovecot_purge_source_prefixes: >-
+      {{ dovecot_purge_source_prefixes +
+         [('/' ~ (dovecot_purge_bind_record.source.split('/')[1:ansible_loop.index] |
+         join('/')))] }}
+  loop: "{{ dovecot_purge_bind_record.source.split('/')[1:] }}"
+  loop_control:
+    extended: true
+
+- name: "Checking bind purge source components without following symlinks"
+  ansible.builtin.stat:
+    path: "{{ dovecot_purge_source_prefix }}"
+    follow: false
+  register: dovecot_purge_source_prefix_stats
+  loop: "{{ dovecot_purge_source_prefixes }}"
+  loop_control:
+    loop_var: dovecot_purge_source_prefix
+
+- name: "Rejecting symlink bind purge source components"
+  ansible.builtin.assert:
+    that: not dovecot_purge_source_prefix_result.stat.islnk
+    fail_msg: "Refusing to purge through symlink path component '{{ dovecot_purge_source_prefix_result.item }}'"
+  loop: "{{ dovecot_purge_source_prefix_stats.results }}"
+  loop_control:
+    loop_var: dovecot_purge_source_prefix_result

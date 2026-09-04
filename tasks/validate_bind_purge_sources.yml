@@ -1,0 +1,10 @@
+---
+- name: "Validating each bind purge source"
+  ansible.builtin.include_tasks: validate_bind_purge_source_record.yml
+  loop: >-
+    {{ iac_blueprint.dovecot.binds | default([]) |
+       selectattr('purge_on_absent', 'defined') |
+       selectattr('purge_on_absent', 'equalto', true) | list }}
+  loop_control:
+    loop_var: dovecot_purge_bind_record
+    label: "{{ dovecot_purge_bind_record.source }}"

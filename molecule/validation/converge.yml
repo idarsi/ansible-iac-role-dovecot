@@ -1,0 +1,526 @@
+---
+- name: "Validate a minimal Dovecot blueprint"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    dovecot_validation_token_path: >-
+      {{ (lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') | default('/tmp', true)) ~
+      '/dovecot-validation-token' }}
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "validation-remove-me"
+            cron_file: "validation-remove-me"
+            state: "absent"
+  pre_tasks:
+    - name: "Checking for an existing validation-run token"
+      ansible.builtin.stat:
+        path: "{{ dovecot_validation_token_path }}"
+      delegate_to: "localhost"
+      register: dovecot_validation_existing_token
+    - name: "Reading an existing validation-run token"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_validation_token_path }}"
+      delegate_to: "localhost"
+      register: dovecot_validation_existing_token_content
+      when: dovecot_validation_existing_token.stat.exists
+    - name: "Checking for an existing validation snapshot"
+      ansible.builtin.stat:
+        path: "/tmp/dovecot-validation-snapshot.json"
+      register: dovecot_validation_existing_snapshot
+    - name: "Rejecting an incomplete prior validation run"
+      ansible.builtin.assert:
+        that: >-
+          not dovecot_validation_existing_token.stat.exists or
+          dovecot_validation_existing_snapshot.stat.exists
+        fail_msg: "A validation token exists without its snapshot; refusing to reuse stale state"
+    - name: "Validating an existing validation snapshot before reuse"
+      block:
+        - name: "Reading an existing validation snapshot"
+          ansible.builtin.slurp:
+            path: "/tmp/dovecot-validation-snapshot.json"
+          register: dovecot_validation_existing_snapshot_content
+        - name: "Parsing the existing validation snapshot"
+          ansible.builtin.set_fact:
+            dovecot_validation_existing_snapshot_data: >-
+              {{ dovecot_validation_existing_snapshot_content.content | b64decode | from_json }}
+        - name: "Asserting existing validation snapshot integrity"
+          ansible.builtin.assert:
+            that:
+              - dovecot_validation_existing_token_content.content | b64decode | trim is string
+              - dovecot_validation_existing_token_content.content | b64decode | trim != ''
+              - dovecot_validation_existing_snapshot_data.converge_marker is string
+              - dovecot_validation_existing_snapshot_data.converge_marker != ''
+              - >-
+                dovecot_validation_existing_snapshot_data.converge_marker ==
+                (dovecot_validation_existing_token_content.content | b64decode | trim)
+              - >-
+                (['package', 'service', 'fstab_exists', 'fstab', 'fixtures',
+                'fixture_mode', 'fixture_uid', 'fixture_gid', 'fixture_content',
+                'config_exists', 'config_type', 'config_mode', 'config_uid',
+                'config_gid', 'config_size', 'config_content', 'converge_marker',
+                'fixture_snapshots'] | difference(dovecot_validation_existing_snapshot_data.keys()) | length) == 0
+              - dovecot_validation_existing_snapshot.stat.mtime is defined
+              - >-
+                (((ansible_date_time.epoch | int) -
+                (dovecot_validation_existing_snapshot.stat.mtime | int)) | abs) <= 3600
+            fail_msg: "Existing validation token or snapshot is corrupt, mismatched, incomplete, or stale"
+      rescue:
+        - name: "Failing closed on invalid validation snapshot reuse"
+          ansible.builtin.fail:
+            msg: "Existing validation token/snapshot failed integrity checks; refusing idempotence reuse"
+      when:
+        - dovecot_validation_existing_token.stat.exists
+        - dovecot_validation_existing_snapshot.stat.exists
+    - name: "Detecting validation snapshot initialization"
+      ansible.builtin.set_fact:
+        dovecot_validation_snapshot_initialized: >-
+          {{ dovecot_validation_existing_token.stat.exists and
+             dovecot_validation_existing_snapshot.stat.exists }}
+    - name: "Collecting initial package state"
+      ansible.builtin.package_facts:
+        manager: "auto"
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Collecting initial service state"
+      ansible.builtin.service_facts:
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Collecting initial fstab state"
+      ansible.builtin.stat:
+        path: "/etc/fstab"
+      register: dovecot_validation_initial_fstab_stat
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Reading initial fstab when present"
+      ansible.builtin.slurp:
+        path: "/etc/fstab"
+      register: dovecot_validation_initial_fstab_content
+      when:
+        - not dovecot_validation_snapshot_initialized
+        - dovecot_validation_initial_fstab_stat.stat.exists
+    - name: "Generating one controller token for this validation run"
+      ansible.builtin.set_fact:
+        dovecot_validation_run_token: "{{ lookup('pipe', 'date +%s%N') }}"
+      delegate_to: "localhost"
+      delegate_facts: true
+      run_once: true  # noqa run-once[task]
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Distributing validation run token to every host"
+      ansible.builtin.set_fact:
+        dovecot_validation_run_token: "{{ hostvars['localhost'].dovecot_validation_run_token }}"
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Persisting per-run validation token for verify"
+      ansible.builtin.copy:
+        content: "{{ hostvars['localhost'].dovecot_validation_run_token }}\n"
+        dest: "{{ dovecot_validation_token_path }}"
+        mode: "0600"
+      delegate_to: "localhost"
+      become: false
+      run_once: true  # noqa run-once[task]
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Snapshotting pre-existing validation fixtures"
+      ansible.builtin.include_tasks: collect_fixture_snapshot.yml
+      loop:
+        - "/srv/data/dovecot-mail"
+        - "/var/lib/dovecot-config"
+        - "/tmp/dovecot-shared"
+      loop_control:
+        loop_var: dovecot_validation_fixture_path
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Collecting initial validation fixture state"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/tmp/dovecot-shared"
+        - "/srv/data/dovecot-mail"
+        - "/var/lib/dovecot-config"
+      register: dovecot_validation_initial_fixture_stats
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Saving initial host state"
+      ansible.builtin.set_fact:
+        dovecot_validation_initial_package: "{{ ansible_facts.packages.dovecot | default([]) }}"
+        dovecot_validation_initial_service: "{{ ansible_facts.services['dovecot.service'] | default({}) }}"
+        dovecot_validation_initial_fstab: >-
+          {{ dovecot_validation_initial_fstab_content.content
+             if dovecot_validation_initial_fstab_stat.stat.exists else omit }}
+        dovecot_validation_initial_fstab_exists: "{{ dovecot_validation_initial_fstab_stat.stat.exists }}"
+        dovecot_validation_initial_fixtures: "{{ dovecot_validation_initial_fixture_stats.results | map(attribute='stat.exists') | list }}"
+        dovecot_validation_initial_fixture_mode: "{{ dovecot_validation_initial_fixture_stats.results[0].stat.mode | default('') }}"
+        dovecot_validation_initial_fixture_uid: "{{ dovecot_validation_initial_fixture_stats.results[0].stat.uid | default(-1) }}"
+        dovecot_validation_initial_fixture_gid: "{{ dovecot_validation_initial_fixture_stats.results[0].stat.gid | default(-1) }}"
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Checking managed configuration state"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_validation_initial_config
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Reading initial managed configuration when present"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_validation_initial_config_content
+      when:
+        - not dovecot_validation_snapshot_initialized
+        - dovecot_validation_initial_config.stat.exists
+    - name: "Saving initial managed configuration state"
+      ansible.builtin.set_fact:
+        dovecot_validation_initial_config_exists: "{{ dovecot_validation_initial_config.stat.exists }}"
+        dovecot_validation_initial_config_type: "{{ dovecot_validation_initial_config.stat.isreg | default(false) }}"
+        dovecot_validation_initial_config_mode: "{{ dovecot_validation_initial_config.stat.mode | default('') }}"
+        dovecot_validation_initial_config_uid: "{{ dovecot_validation_initial_config.stat.uid | default(-1) }}"
+        dovecot_validation_initial_config_gid: "{{ dovecot_validation_initial_config.stat.gid | default(-1) }}"
+        dovecot_validation_initial_config_size: "{{ dovecot_validation_initial_config.stat.size | default(-1) }}"
+        dovecot_validation_initial_config_content_value: >-
+          {{ dovecot_validation_initial_config_content.content
+             if dovecot_validation_initial_config.stat.exists else '' }}
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Persisting validation snapshot for the verify phase"
+      ansible.builtin.copy:
+        dest: "/tmp/dovecot-validation-snapshot.json"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+        content: >-
+          {{ {
+            'package': dovecot_validation_initial_package,
+            'service': dovecot_validation_initial_service,
+            'fstab_exists': dovecot_validation_initial_fstab_exists,
+            'fstab': dovecot_validation_initial_fstab | default(''),
+            'fixtures': dovecot_validation_initial_fixtures,
+            'fixture_mode': dovecot_validation_initial_fixture_mode,
+            'fixture_uid': dovecot_validation_initial_fixture_uid,
+            'fixture_gid': dovecot_validation_initial_fixture_gid,
+            'fixture_content': '',
+            'config_exists': dovecot_validation_initial_config_exists,
+            'config_type': dovecot_validation_initial_config_type,
+            'config_mode': dovecot_validation_initial_config_mode,
+            'config_uid': dovecot_validation_initial_config_uid,
+            'config_gid': dovecot_validation_initial_config_gid,
+            'config_size': dovecot_validation_initial_config_size,
+            'config_content': dovecot_validation_initial_config_content_value,
+            'converge_marker': hostvars['localhost'].dovecot_validation_run_token,
+            'fixture_snapshots': dovecot_validation_fixture_snapshots
+          } | to_json }}
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Creating validation fixture after the initial snapshot"
+      ansible.builtin.copy:
+        content: "validation fixture\n"
+        dest: "/tmp/dovecot-validation-fixture"
+        owner: "root"
+        group: "root"
+        mode: "0640"
+  roles:
+    - role: ansible-iac-role-dovecot
+
+- name: "Reject equal bind paths"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        binds:
+          - source: "/srv/dovecot-data"
+            target: "/srv/dovecot-data"
+  tasks:
+    - name: "Expect equal bind paths to fail"
+      block:
+        - name: "Running role with equal bind paths"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if equal bind paths were accepted"
+          ansible.builtin.fail:
+            msg: "Equal bind paths were accepted"
+      rescue:
+        - name: "Collecting equal-bind failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting equal bind failure came from nested validation"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Bind source and target must resolve to different paths' in dovecot_validation_failure_messages"
+
+- name: "Reject incomplete TLS"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "required"
+  tasks:
+    - name: "Expect incomplete TLS to fail"
+      block:
+        - name: "Running role with incomplete TLS"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if incomplete TLS was accepted"
+          ansible.builtin.fail:
+            msg: "Incomplete TLS configuration was accepted"
+      rescue:
+        - name: "Collecting incomplete-TLS failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting incomplete TLS failure came from nested validation"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'TLS requires both absolute ssl_cert and ssl_key paths; ssl=required cannot be used without them' in dovecot_validation_failure_messages"
+
+- name: "Reject duplicate bind targets"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        binds:
+          - source: "/srv/dovecot-one"
+            target: "/var/lib/dovecot-mail"
+          - source: "/srv/dovecot-two"
+            target: "/var/lib/dovecot-mail"
+  tasks:
+    - name: "Expect duplicate bind targets to fail"
+      block:
+        - name: "Running role with duplicate bind targets"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if duplicate bind targets were accepted"
+          ansible.builtin.fail:
+            msg: "Duplicate bind targets were accepted"
+      rescue:
+        - name: "Collecting duplicate-target failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting duplicate bind target rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Dovecot bind targets must be unique' in dovecot_validation_failure_messages"
+
+- name: "Reject unsafe destructive paths"
+  hosts: all
+  become: false
+  vars:
+    state: "absent"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        binds:
+          - source: "/srv/dovecot-data"
+            target: "/etc/dovecot/conf.d"
+            purge_on_absent: true
+  tasks:
+    - name: "Expect unsafe destructive path to fail"
+      block:
+        - name: "Running role with an unsafe destructive path"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if unsafe destructive path was accepted"
+          ansible.builtin.fail:
+            msg: "Unsafe destructive path was accepted"
+      rescue:
+        - name: "Collecting unsafe-path failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting unsafe path failure came from nested validation"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Destructive Dovecot resource paths must be specific absolute paths, not / or a top-level directory' in dovecot_validation_failure_messages"
+
+- name: "Reject an overridden Dovecot configuration directory"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    dovecot_conf_directory: "/tmp/dovecot-conf"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  tasks:
+    - name: "Expect configuration directory override to fail"
+      block:
+        - name: "Running role with an overridden configuration directory"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if configuration directory override was accepted"
+          ansible.builtin.fail:
+            msg: "Configuration directory override was accepted"
+      rescue:
+        - name: "Collecting configuration-directory failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting configuration directory rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+
+- name: "Reject an overridden managed configuration path"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    dovecot_idarsi_conf_path: "/etc/dovecot/not-managed.conf"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  tasks:
+    - name: "Expect managed configuration path override to fail"
+      block:
+        - name: "Running role with an overridden managed configuration path"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if managed configuration path override was accepted"
+          ansible.builtin.fail:
+            msg: "Managed configuration path override was accepted"
+      rescue:
+        - name: "Collecting managed-path failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting managed configuration path rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+
+- name: "Reject an invalid proxy URL"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    http_proxy: "proxy-without-scheme"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  tasks:
+    - name: "Expect invalid proxy URL to fail"
+      block:
+        - name: "Running role with an invalid proxy URL"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if invalid proxy URL was accepted"
+          ansible.builtin.fail:
+            msg: "Invalid proxy URL was accepted"
+      rescue:
+        - name: "Collecting invalid-proxy failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting invalid proxy URL rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'http_proxy and https_proxy must be empty or valid http(s) URLs with a hostname and optional port' in dovecot_validation_failure_messages"
+
+- name: "Reject an out-of-range proxy port"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    http_proxy: "http://proxy.example.org:70000"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  tasks:
+    - name: "Expect out-of-range proxy port to fail"
+      block:
+        - name: "Running role with an out-of-range proxy port"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if out-of-range proxy port was accepted"
+          ansible.builtin.fail:
+            msg: "Out-of-range proxy port was accepted"
+      rescue:
+        - name: "Collecting proxy-port failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting out-of-range proxy port rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - "'http_proxy port must be between 1 and 65535' in dovecot_validation_failure_messages"
+
+- name: "Reject a symlink bind purge source"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        binds:
+          - source: "/tmp/dovecot-purge-link"
+            target: "/srv/dovecot-data"
+            purge_on_absent: true
+  pre_tasks:
+    - name: "Creating symlink purge-source target fixture"
+      ansible.builtin.file:
+        path: "/tmp/dovecot-purge-target"
+        state: "directory"
+        mode: "0750"
+    - name: "Creating symlink purge-source fixture"
+      ansible.builtin.file:
+        src: "/tmp/dovecot-purge-target"
+        path: "/tmp/dovecot-purge-link"
+        state: "link"
+  tasks:
+    - name: "Expect symlink purge source to fail"
+      block:
+        - name: "Running role with a symlink purge source"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if symlink purge source was accepted"
+          ansible.builtin.fail:
+            msg: "Symlink purge source was accepted"
+      rescue:
+        - name: "Collecting symlink-purge failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default(''),
+                 (ansible_failed_task.args | default({})).fail_msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Asserting symlink purge source rejection"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Refusing to purge symlink bind source '/tmp/dovecot-purge-link'"
+                in dovecot_validation_failure_messages

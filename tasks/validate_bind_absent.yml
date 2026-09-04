@@ -1,0 +1,37 @@
+---
+- name: "Checking fstab before bind removal validation"
+  ansible.builtin.stat:
+    path: "/etc/fstab"
+  register: dovecot_bind_absent_fstab_stat
+
+- name: "Reading fstab before bind removal validation"
+  ansible.builtin.slurp:
+    path: "/etc/fstab"
+  register: dovecot_bind_absent_fstab_content
+  failed_when: false
+  when: dovecot_bind_absent_fstab_stat.stat.exists
+
+- name: "Rejecting an unreadable fstab"
+  ansible.builtin.assert:
+    that: not dovecot_bind_absent_fstab_stat.stat.exists or dovecot_bind_absent_fstab_content is succeeded
+    fail_msg: "Unable to safely inspect /etc/fstab before bind removal"
+
+- name: "Preparing fstab bind ownership records"
+  ansible.builtin.set_fact:
+    dovecot_bind_absent_fstab_lines: >-
+      {{ (dovecot_bind_absent_fstab_content.content | default('') | b64decode).splitlines() |
+         map('trim') | list }}
+
+- name: "Rejecting ambiguous fstab entries"
+  ansible.builtin.assert:
+    that: item.split() | length >= 4
+    fail_msg: "Unable to safely parse /etc/fstab before bind removal"
+  loop: "{{ dovecot_bind_absent_fstab_lines }}"
+  when: item != '' and not item.startswith('#')
+
+- name: "Validating each bind removal scope"
+  ansible.builtin.include_tasks: validate_bind_absent_record.yml
+  loop: "{{ iac_blueprint.dovecot.binds | default([]) }}"
+  loop_control:
+    loop_var: dovecot_bind_absent_record
+    label: "{{ dovecot_bind_absent_record.target | default('invalid') }}"

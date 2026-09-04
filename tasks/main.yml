@@ -22,16 +22,35 @@
 
 - name: "Checking if service_key is found from variables"
   ansible.builtin.fail:
-    msg: "iac_blueprint or iac_blueprint.dovecot is not defined"
-  when: iac_blueprint is not defined or iac_blueprint.dovecot is not defined
+    msg: "iac_blueprint must be a mapping containing dovecot"
+  when: >
+    iac_blueprint is not defined or iac_blueprint is not mapping or
+    iac_blueprint.dovecot is not defined or
+    iac_blueprint.dovecot is not mapping
 
-###############################################################################
-# SETTING VARIABLES
-###############################################################################
+- name: "Checking that state is explicitly defined"
+  ansible.builtin.assert:
+    that: state is defined
+    fail_msg: "state must be explicitly set; no implicit lifecycle action is selected"
 
 - name: "Setting what Dovecot configuration is to be managed"
   ansible.builtin.set_fact:
     dovecot_configuration: "{{ iac_blueprint.dovecot.configuration | default({}) }}"
+
+- name: "Validating Dovecot inventory blueprint"
+  ansible.builtin.include_tasks: validate_inventory.yml
+
+- name: "Validating bind purge sources before mutation"
+  ansible.builtin.include_tasks: validate_bind_purge_sources.yml
+  when: state in ['validate', 'absent', 'uninstall']
+
+- name: "Validating bind removal scope before mutation"
+  ansible.builtin.include_tasks: validate_bind_absent.yml
+  when: state in ['absent', 'uninstall']
+
+###############################################################################
+# SETTING VARIABLES
+###############################################################################
 
 - name: "Setting shared Dovecot resource variables"
   ansible.builtin.set_fact:
@@ -41,16 +60,42 @@
     iac_cron: "{{ iac_blueprint.dovecot.cron | default([]) }}"
     iac_git_repos: "{{ iac_blueprint.dovecot.git | default([]) }}"
 
+- name: "Checking whether proxy use is bypassed"
+  ansible.builtin.set_fact:
+    dovecot_proxy_bypassed: false
+
+- name: "Matching Dovecot host against no_proxy entries"
+  ansible.builtin.set_fact:
+    dovecot_proxy_bypassed: true
+  loop: "{{ no_proxy | default('') | split(',') | map('trim') | reject('equalto', '') | list }}"
+  loop_control:
+    loop_var: dovecot_no_proxy_entry
+  vars:
+    dovecot_no_proxy_entry_host: >-
+      {{ dovecot_no_proxy_entry | regex_replace(':[0-9]+$', '') | lower }}
+  when: >
+    dovecot_no_proxy_entry == '*'
+    or dovecot_no_proxy_entry_host == (inventory_hostname | lower)
+    or (inventory_hostname | lower).endswith('.' ~ dovecot_no_proxy_entry_host.lstrip('.'))
+
 - name: "Checking proxy address if it's defined"
   ansible.builtin.set_fact:
-    proxy_host: "{{ (http_proxy | regex_replace('^https?://', '')).split(':')[0] }}"
-    proxy_port: "{{ (http_proxy | regex_replace('^https?://', '')).split(':')[1] | int }}"
+    dovecot_proxy_url: "{{ http_proxy if http_proxy | default('') != '' else https_proxy }}"
   when: >
-    (
-      (http_proxy is defined and http_proxy != "")
-      or (https_proxy is defined and https_proxy != "")
-    )
-    and (inventory_hostname not in (no_proxy | default("") | split(",")))
+    (http_proxy | default('') != '' or https_proxy | default('') != '')
+    and not dovecot_proxy_bypassed
+    and state in ['install', 'present']
+
+- name: "Parsing proxy address"
+  ansible.builtin.set_fact:
+    proxy_host: "{{ dovecot_proxy_url | urlsplit('hostname') }}"
+    proxy_port: >-
+      {{ dovecot_proxy_url | urlsplit('port') |
+      default(80 if dovecot_proxy_url is match('^http://') else 443, true) | int }}
+  when: >
+    dovecot_proxy_url is defined
+    and not dovecot_proxy_bypassed
+    and state in ['install', 'present']
 
 - name: "Checking that proxy connection is working if it's defined"
   ansible.builtin.wait_for:
@@ -59,15 +104,18 @@
     state: "started"
     timeout: 3
   when: >
-    (
-      (http_proxy is defined and http_proxy != "")
-      or (https_proxy is defined and https_proxy != "")
-    )
-    and (inventory_hostname not in (no_proxy | default("") | split(",")))
+    dovecot_proxy_url is defined
+    and not dovecot_proxy_bypassed
+    and state in ['install', 'present']
 
 ###############################################################################
 # CHECKING STATES
 ###############################################################################
+
+- name: "STATE: Validate Dovecot inventory only"
+  ansible.builtin.debug:
+    msg: "Dovecot blueprint validation succeeded"
+  when: state == 'validate'
 
 - name: "STATE: Ensure Dovecot installation and configuration is present"
   ansible.builtin.include_tasks: install.yml

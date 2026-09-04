@@ -39,6 +39,7 @@ These operations are supported:
 
 Operation                                   | State                 |
 --------------------------------------------|-----------------------|
+Validate inventory only                      | validate              |
 Installing and configuring Dovecot          | install               |
 Uninstalling Dovecot                        | uninstall             |
 Installing and configuring Dovecot package  | present               |
@@ -51,6 +52,16 @@ Managing shared filesystem resources        | present / absent      |
 Managing shared bind mounts                 | present / absent      |
 Managing shared cron jobs                   | present / absent      |
 Managing shared Git working trees           | present / absent      |
+
+An explicit state is required; the role does not assume a destructive or
+installing action when `state` is omitted. The `validate` state validates the
+complete blueprint and performs no host-state changes. TLS `ssl_cert` and
+`ssl_key` must be supplied together as absolute paths whenever `ssl` is `yes`
+or `required`.
+The generated configuration remains under the fixed `/etc/dovecot/conf.d`
+tree; configuration-directory overrides are rejected. Destructive resource
+declarations must use specific paths, not broad trees such as
+`/etc/dovecot/conf.d` or `/var/lib/dovecot`.
 
 Requirements
 ------------
@@ -210,8 +221,27 @@ two non-empty directories automatically.
 The `present` and `install` flows create the declared resources before the
 Dovecot service is started. The `absent` and `uninstall` flows stop Dovecot,
 remove the declared resources, unmount declared binds, and remove the Dovecot
-package. Bind-backed data is purged during removal, so review
-`purge_on_absent` behavior and backups before using a destructive state.
+package. Bind-backed data is not purged by default. Set
+`purge_on_absent: true` explicitly on a bind record only when deleting its
+role-managed source data is intended; broad paths such as `/etc/dovecot` and
+`/var/lib` are rejected by preflight validation. Purge sources that are
+symlinks are also refused so cleanup cannot follow a link outside the declared
+scope. Before bind removal, the role verifies that any live mount and fstab
+entry match the declared source and target; unrelated mounts are refused. The
+symlink check is repeated immediately before removal, but without an ownership
+manifest no filesystem check can provide a race-proof guarantee against a
+concurrent administrator changing the source after validation.
+
+Migration and compatibility
+---------------------------
+
+Older inventories that relied on removal implicitly purging bind data must add
+`purge_on_absent: true` to each bind record where that deletion is intentional.
+Existing inventories using the normal `/etc/dovecot` and
+`/etc/dovecot/conf.d` defaults remain compatible. Custom configuration-tree
+overrides must be migrated back to that fixed tree: they are rejected because
+the role has no ownership manifest for safely proving that an arbitrary path
+belongs to Dovecot before configuration or cleanup.
 
 The shared filesystem helpers support inline files, controller-side or
 target-side file copies, directory ownership and modes, optional SELinux

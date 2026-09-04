@@ -1,0 +1,425 @@
+---
+- name: "Validating Dovecot blueprint type"
+  ansible.builtin.assert:
+    that:
+      - iac_blueprint is mapping
+      - iac_blueprint.dovecot is mapping
+    fail_msg: "iac_blueprint.dovecot must be a mapping"
+
+- name: "Validating requested Dovecot state"
+  ansible.builtin.assert:
+    that:
+      - state is defined and state in ['validate', 'install', 'uninstall', 'present', 'absent', 'configuration_present', 'started', 'stopped', 'restarted']
+    fail_msg: "state must be explicitly set to a supported Dovecot state"
+
+- name: "Validating proxy variable types"
+  ansible.builtin.assert:
+    that:
+      - http_proxy | default('') is string
+      - https_proxy | default('') is string
+      - no_proxy | default('') is string
+    fail_msg: "http_proxy, https_proxy, and no_proxy must be strings"
+
+- name: "Validating Dovecot blueprint sections"
+  ansible.builtin.assert:
+    that:
+      - (iac_blueprint.dovecot.configuration | default({})) is mapping
+      - (iac_blueprint.dovecot.directories | default([])) is sequence
+      - (iac_blueprint.dovecot.files | default([])) is sequence
+      - (iac_blueprint.dovecot.binds | default([])) is sequence
+      - (iac_blueprint.dovecot.cron | default([])) is sequence
+      - (iac_blueprint.dovecot.git | default([])) is sequence
+      - (iac_blueprint.dovecot.directories | default([])) is not string
+      - (iac_blueprint.dovecot.files | default([])) is not string
+      - (iac_blueprint.dovecot.binds | default([])) is not string
+      - (iac_blueprint.dovecot.cron | default([])) is not string
+      - (iac_blueprint.dovecot.git | default([])) is not string
+    fail_msg: "Dovecot resource sections must be lists and configuration must be a mapping"
+
+- name: "Validating Dovecot configuration values"
+  ansible.builtin.assert:
+    that:
+      - (iac_blueprint.dovecot.configuration.protocols | default(dovecot_default_protocols)) is sequence
+      - (iac_blueprint.dovecot.configuration.protocols | default(dovecot_default_protocols)) is not string
+      - (iac_blueprint.dovecot.configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms)) is sequence
+      - (iac_blueprint.dovecot.configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms)) is not string
+      - (iac_blueprint.dovecot.configuration.ssl | default(dovecot_default_ssl)) in ['yes', 'no', 'required']
+    fail_msg: "Dovecot protocols and auth_mechanisms must be lists; ssl must be yes, no, or required"
+
+- name: "Validating Dovecot configuration field types"
+  ansible.builtin.assert:
+    that:
+      - dovecot_configuration.protocols is not defined or dovecot_configuration.protocols is sequence
+      - dovecot_configuration.protocols is not defined or dovecot_configuration.protocols is not string
+      - dovecot_configuration.mail_location is not defined or dovecot_configuration.mail_location is string
+      - dovecot_configuration.auth_mechanisms is not defined or dovecot_configuration.auth_mechanisms is sequence
+      - dovecot_configuration.auth_mechanisms is not defined or dovecot_configuration.auth_mechanisms is not string
+      - dovecot_configuration.disable_plaintext_auth is not defined or dovecot_configuration.disable_plaintext_auth is boolean
+      - dovecot_configuration.ssl is not defined or dovecot_configuration.ssl is string
+      - dovecot_configuration.ssl_cert is not defined or dovecot_configuration.ssl_cert is string
+      - dovecot_configuration.ssl_key is not defined or dovecot_configuration.ssl_key is string
+      - dovecot_configuration.extra_parameters is not defined or dovecot_configuration.extra_parameters is mapping
+      - >-
+        dovecot_configuration.keys() | difference([
+        'protocols', 'mail_location', 'auth_mechanisms', 'disable_plaintext_auth',
+        'ssl', 'ssl_cert', 'ssl_key', 'extra_parameters']) | length == 0
+    fail_msg: "Dovecot configuration contains unsupported fields or invalid field types"
+
+- name: "Validating Dovecot TLS certificate and key"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_configuration.ssl_cert is defined) == (dovecot_configuration.ssl_key is defined)
+      - >-
+        dovecot_configuration.ssl_cert is not defined or
+        (dovecot_configuration.ssl_cert is string and
+        dovecot_configuration.ssl_cert is match('^/[^/ ]+(?:/[^/ ]+)*$') and
+        dovecot_configuration.ssl_cert != '/' and
+        dovecot_configuration.ssl_cert is not search('(^|/)\.{1,2}(/|$)') and
+        dovecot_configuration.ssl_cert is not search('//'))
+      - >-
+        dovecot_configuration.ssl_key is not defined or
+        (dovecot_configuration.ssl_key is string and
+        dovecot_configuration.ssl_key is match('^/[^/ ]+(?:/[^/ ]+)*$') and
+        dovecot_configuration.ssl_key != '/' and
+        dovecot_configuration.ssl_key is not search('(^|/)\.{1,2}(/|$)') and
+        dovecot_configuration.ssl_key is not search('//'))
+      - >-
+        dovecot_configuration.ssl | default(dovecot_default_ssl) == 'no'
+        or (dovecot_configuration.ssl_cert is defined and
+        dovecot_configuration.ssl_key is defined)
+    fail_msg: "TLS requires both absolute ssl_cert and ssl_key paths; ssl=required cannot be used without them"
+  when: state in ['validate', 'install', 'present', 'configuration_present']
+
+- name: "Validating additional Dovecot parameters"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_configuration.extra_parameters | default({})) is mapping
+    fail_msg: "Dovecot extra_parameters must be a mapping"
+
+- name: "Validating managed Dovecot configuration path"
+  ansible.builtin.assert:
+    that:
+      - dovecot_idarsi_conf_path is string
+      - dovecot_conf_directory is string
+      - dovecot_etc_directory == '/etc/dovecot'
+      - dovecot_conf_directory == '/etc/dovecot/conf.d'
+      - dovecot_idarsi_conf_path is match('^/[^ ]+$')
+      - dovecot_conf_directory is match('^/[^ ]+$')
+      - dovecot_idarsi_conf_path is not search('(^|/)\.{1,2}(/|$)')
+      - dovecot_conf_directory is not search('(^|/)\.{1,2}(/|$)')
+      - >-
+        dovecot_idarsi_conf_path is match(
+        '^/etc/dovecot/conf[.]d/(?:[^/ ]+/)*[^/ ]+$')
+    fail_msg: "Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d"
+
+- name: "Validating proxy input for package states"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (http_proxy | default('') == '' or
+        http_proxy | default('') is match('^https?://[^/:]+(:[0-9]{1,5})?/?$')) and
+        (https_proxy | default('') == '' or
+        https_proxy | default('') is match('^https?://[^/:]+(:[0-9]{1,5})?/?$'))
+    fail_msg: "http_proxy and https_proxy must be empty or valid http(s) URLs with a hostname and optional port"
+  when: state in ['install', 'present']
+
+- name: "Validating HTTP proxy port range"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (http_proxy | regex_search(':[0-9]+/?$') |
+        regex_replace('^:|/$', '') | int) >= 1
+      - >-
+        (http_proxy | regex_search(':[0-9]+/?$') |
+        regex_replace('^:|/$', '') | int) <= 65535
+    fail_msg: "http_proxy port must be between 1 and 65535"
+  when:
+    - state in ['install', 'present']
+    - http_proxy | default('') is search(':[0-9]+/?$')
+
+- name: "Validating HTTPS proxy port range"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (https_proxy | regex_search(':[0-9]+/?$') |
+        regex_replace('^:|/$', '') | int) >= 1
+      - >-
+        (https_proxy | regex_search(':[0-9]+/?$') |
+        regex_replace('^:|/$', '') | int) <= 65535
+    fail_msg: "https_proxy port must be between 1 and 65535"
+  when:
+    - state in ['install', 'present']
+    - https_proxy | default('') is search(':[0-9]+/?$')
+
+- name: "Validating Dovecot filesystem resource records"
+  ansible.builtin.assert:
+    that:
+      - dovecot_resource_record is mapping
+      - dovecot_resource_record.path is defined
+      - dovecot_resource_record.path is string
+      - dovecot_resource_record.path is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_resource_record.path is not search('(^|/)\.{1,2}(/|$)')
+    fail_msg: "Each Dovecot directory and file record requires a non-empty absolute path"
+  loop: "{{ (iac_blueprint.dovecot.directories | default([])) + (iac_blueprint.dovecot.files | default([])) }}"
+  loop_control:
+    loop_var: dovecot_resource_record
+    label: "{{ dovecot_resource_record.path | default('invalid') }}"
+
+- name: "Validating Dovecot filesystem record field types"
+  ansible.builtin.assert:
+    that:
+      - dovecot_resource_record.owner is not defined or dovecot_resource_record.owner is string
+      - dovecot_resource_record.group is not defined or dovecot_resource_record.group is string
+      - dovecot_resource_record.mode is not defined or dovecot_resource_record.mode is string
+      - dovecot_resource_record.content is not defined or dovecot_resource_record.content is string
+      - dovecot_resource_record.src is not defined or dovecot_resource_record.src is string
+      - dovecot_resource_record.remote_src is not defined or dovecot_resource_record.remote_src is boolean
+      - dovecot_resource_record.recurse is not defined or dovecot_resource_record.recurse is boolean
+      - dovecot_resource_record.follow is not defined or dovecot_resource_record.follow is boolean
+      - dovecot_resource_record.setype is not defined or dovecot_resource_record.setype is string
+      - dovecot_resource_record.seuser is not defined or dovecot_resource_record.seuser is string
+      - dovecot_resource_record.serole is not defined or dovecot_resource_record.serole is string
+      - dovecot_resource_record.selevel is not defined or dovecot_resource_record.selevel is string
+      - dovecot_resource_record.selinux is not defined or dovecot_resource_record.selinux is mapping
+      - >-
+        dovecot_resource_record.keys() | difference([
+        'path', 'state', 'owner', 'group', 'mode', 'content', 'src',
+        'remote_src', 'recurse', 'follow', 'setype', 'seuser', 'serole',
+        'selevel', 'selinux']) | length == 0
+    fail_msg: "Dovecot filesystem fields have invalid types"
+  loop: "{{ (iac_blueprint.dovecot.directories | default([])) + (iac_blueprint.dovecot.files | default([])) }}"
+  loop_control:
+    loop_var: dovecot_resource_record
+    label: "{{ dovecot_resource_record.path | default('invalid') }}"
+
+- name: "Validating nested filesystem SELinux mappings"
+  ansible.builtin.assert:
+    that:
+      - dovecot_selinux_record.setype is not defined or dovecot_selinux_record.setype is string
+      - dovecot_selinux_record.seuser is not defined or dovecot_selinux_record.seuser is string
+      - dovecot_selinux_record.serole is not defined or dovecot_selinux_record.serole is string
+      - dovecot_selinux_record.selevel is not defined or dovecot_selinux_record.selevel is string
+      - dovecot_selinux_record.keys() | difference(['setype', 'recursive']) | length == 0
+      - dovecot_selinux_record.setype is defined
+      - dovecot_selinux_record.recursive is not defined or dovecot_selinux_record.recursive is boolean
+    fail_msg: "Dovecot filesystem selinux fields must be strings"
+  loop: >-
+    {{ ((iac_blueprint.dovecot.directories | default([])) +
+        (iac_blueprint.dovecot.files | default([]))) |
+       selectattr('selinux', 'defined') | map(attribute='selinux') | list }}
+  loop_control:
+    loop_var: dovecot_selinux_record
+
+- name: "Validating Dovecot directory state"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_directory_record.state | default('directory')) in ['directory', 'absent']
+    fail_msg: "Dovecot directory state must be directory or absent"
+  loop: "{{ iac_blueprint.dovecot.directories | default([]) }}"
+  loop_control:
+    loop_var: dovecot_directory_record
+    label: "{{ dovecot_directory_record.path | default('invalid') }}"
+
+- name: "Validating Dovecot directory schema"
+  ansible.builtin.assert:
+    that:
+      - dovecot_directory_record.keys() | difference([
+        'path', 'state', 'owner', 'group', 'mode', 'selinux']) | length == 0
+    fail_msg: "Dovecot directory record contains unsupported fields"
+  loop: "{{ iac_blueprint.dovecot.directories | default([]) }}"
+  loop_control:
+    loop_var: dovecot_directory_record
+    label: "{{ dovecot_directory_record.path | default('invalid') }}"
+
+- name: "Validating Dovecot file records"
+  ansible.builtin.assert:
+    that:
+      - dovecot_file_record is mapping
+      - state in ['absent', 'uninstall'] or dovecot_file_record.content is defined or dovecot_file_record.src is defined
+      - state in ['absent', 'uninstall'] or (dovecot_file_record.content is defined) != (dovecot_file_record.src is defined)
+      - dovecot_file_record.content is not defined or dovecot_file_record.content is string
+      - dovecot_file_record.src is not defined or dovecot_file_record.src is string
+      - dovecot_file_record.src is not defined or dovecot_file_record.src is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_file_record.src is not defined or dovecot_file_record.src is not search('(^|/)\.{1,2}(/|$)')
+      - dovecot_file_record.src is not defined or dovecot_file_record.src is not search('//')
+      - dovecot_file_record.remote_src is not defined or dovecot_file_record.remote_src is boolean
+      - dovecot_file_record.remote_src is not defined or dovecot_file_record.src is defined
+      - dovecot_file_record.keys() | difference([
+        'path', 'content', 'src', 'remote_src', 'owner', 'group', 'mode',
+        'selinux']) | length == 0
+    fail_msg: "Each Dovecot file record requires exactly one string content or safe absolute src path"
+  loop: "{{ iac_blueprint.dovecot.files | default([]) }}"
+  loop_control:
+    loop_var: dovecot_file_record
+    label: "{{ dovecot_file_record.path | default('invalid') }}"
+
+- name: "Validating Dovecot bind resource records"
+  ansible.builtin.assert:
+    that:
+      - dovecot_bind_record is mapping
+      - dovecot_bind_record.source is defined
+      - dovecot_bind_record.target is defined
+      - dovecot_bind_record.source is string
+      - dovecot_bind_record.target is string
+      - dovecot_bind_record.source is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_bind_record.target is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_bind_record.source is not search('(^|/)\.\.(?:/|$)')
+      - dovecot_bind_record.target is not search('(^|/)\.\.(?:/|$)')
+      - dovecot_bind_record.source is not search('(^|/)\.(?:/|$)')
+      - dovecot_bind_record.target is not search('(^|/)\.(?:/|$)')
+      - dovecot_bind_record.purge_on_absent is not defined or dovecot_bind_record.purge_on_absent is boolean
+      - dovecot_bind_record.keys() | difference([
+        'source', 'target', 'owner', 'group', 'mode', 'move_from_target',
+        'purge_on_absent']) | length == 0
+    fail_msg: "Each Dovecot bind record requires non-empty absolute source and target paths"
+  loop: "{{ iac_blueprint.dovecot.binds | default([]) }}"
+  loop_control:
+    loop_var: dovecot_bind_record
+    label: "{{ dovecot_bind_record.target | default('invalid') }}"
+
+- name: "Validating Dovecot bind source and target are distinct"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (dovecot_bind_record.source | regex_replace('/+', '/') |
+        regex_replace('/\./', '/') | regex_replace('/\.$', '') |
+        regex_replace('/+$', '')) !=
+        (dovecot_bind_record.target | regex_replace('/+', '/') |
+        regex_replace('/\./', '/') | regex_replace('/\.$', '') |
+        regex_replace('/+$', ''))
+    fail_msg: "Bind source and target must resolve to different paths"
+  loop: "{{ iac_blueprint.dovecot.binds | default([]) }}"
+  loop_control:
+    loop_var: dovecot_bind_record
+    label: "{{ dovecot_bind_record.target | default('invalid') }}"
+
+- name: "Rejecting duplicate Dovecot bind targets"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (iac_blueprint.dovecot.binds | default([]) |
+        map(attribute='target') | list | unique | length) ==
+        (iac_blueprint.dovecot.binds | default([]) | length)
+    fail_msg: "Dovecot bind targets must be unique"
+
+- name: "Validating Dovecot bind record field types"
+  ansible.builtin.assert:
+    that:
+      - dovecot_bind_record.owner is not defined or dovecot_bind_record.owner is string
+      - dovecot_bind_record.group is not defined or dovecot_bind_record.group is string
+      - dovecot_bind_record.mode is not defined or dovecot_bind_record.mode is string
+      - dovecot_bind_record.move_from_target is not defined or dovecot_bind_record.move_from_target is boolean
+      - dovecot_bind_record.purge_on_absent is not defined or dovecot_bind_record.purge_on_absent is boolean
+    fail_msg: "Dovecot bind fields have invalid types"
+  loop: "{{ iac_blueprint.dovecot.binds | default([]) }}"
+  loop_control:
+    loop_var: dovecot_bind_record
+    label: "{{ dovecot_bind_record.target | default('invalid') }}"
+
+- name: "Validating Dovecot Git resource records"
+  ansible.builtin.assert:
+    that:
+      - dovecot_git_record is mapping
+      - dovecot_git_record.dest is defined
+      - dovecot_git_record.dest is string
+      - dovecot_git_record.dest is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_git_record.dest is not search('(^|/)\.{1,2}(/|$)')
+    fail_msg: "Each Dovecot Git record requires a non-empty absolute dest path"
+  loop: "{{ iac_blueprint.dovecot.git | default([]) }}"
+  loop_control:
+    loop_var: dovecot_git_record
+    label: "{{ dovecot_git_record.dest | default('invalid') }}"
+
+- name: "Validating Dovecot Git and cron record fields"
+  ansible.builtin.assert:
+    that:
+      - dovecot_aux_record is mapping
+      - dovecot_aux_record.dest is defined
+      - state not in ['present', 'install'] or dovecot_aux_record.repo is defined
+      - dovecot_aux_record.repo is not defined or dovecot_aux_record.repo is string
+      - dovecot_aux_record.dest is string
+      - dovecot_aux_record.name is not defined or dovecot_aux_record.name is string
+      - dovecot_aux_record.job is not defined or dovecot_aux_record.job is string
+      - dovecot_aux_record.version is not defined or dovecot_aux_record.version is string
+      - dovecot_aux_record.single_branch is not defined or dovecot_aux_record.single_branch is boolean
+      - dovecot_aux_record.update is not defined or dovecot_aux_record.update is boolean
+      - dovecot_aux_record.force is not defined or dovecot_aux_record.force is boolean
+      - dovecot_aux_record.recursive is not defined or dovecot_aux_record.recursive is boolean
+      - dovecot_aux_record.accept_hostkey is not defined or dovecot_aux_record.accept_hostkey is boolean
+      - dovecot_aux_record.key_file is not defined or dovecot_aux_record.key_file is string
+      - dovecot_aux_record.remote is not defined or dovecot_aux_record.remote is string
+      - dovecot_aux_record.depth is not defined or (dovecot_aux_record.depth is integer and dovecot_aux_record.depth > 0)
+      - dovecot_aux_record.refspec is not defined or dovecot_aux_record.refspec is string
+      - dovecot_aux_record.keys() | difference([
+        'repo', 'dest', 'version', 'update', 'force', 'recursive',
+        'single_branch', 'remote', 'accept_hostkey', 'key_file', 'depth',
+        'refspec']) | length == 0
+    fail_msg: "Each Dovecot Git record requires string repo and dest fields; cron records must be mappings"
+  loop: "{{ iac_blueprint.dovecot.git | default([]) }}"
+  loop_control:
+    loop_var: dovecot_aux_record
+    label: "{{ dovecot_aux_record.dest | default('invalid') }}"
+
+- name: "Validating Dovecot cron records"
+  ansible.builtin.assert:
+    that:
+      - dovecot_cron_record is mapping
+      - dovecot_cron_record.name is defined
+      - dovecot_cron_record.name is string
+      - dovecot_cron_record.cron_file is defined
+      - dovecot_cron_record.cron_file is string
+      - dovecot_cron_record.cron_file is match('^[A-Za-z0-9_.-]+$')
+      - state in ['absent', 'uninstall'] or dovecot_cron_record.state == 'absent' or dovecot_cron_record.job is defined
+      - dovecot_cron_record.job is not defined or dovecot_cron_record.job is string
+      - dovecot_cron_record.user is not defined or dovecot_cron_record.user is string
+      - dovecot_cron_record.state is not defined or dovecot_cron_record.state in ['present', 'absent']
+      - dovecot_cron_record.minute is not defined or dovecot_cron_record.minute is string
+      - dovecot_cron_record.hour is not defined or dovecot_cron_record.hour is string
+      - dovecot_cron_record.day is not defined or dovecot_cron_record.day is string
+      - dovecot_cron_record.month is not defined or dovecot_cron_record.month is string
+      - dovecot_cron_record.weekday is not defined or dovecot_cron_record.weekday is string
+      - dovecot_cron_record.special_time is not defined or dovecot_cron_record.special_time is string
+      - >-
+        dovecot_cron_record.special_time is not defined or
+        (dovecot_cron_record.minute is not defined and
+        dovecot_cron_record.hour is not defined and
+        dovecot_cron_record.day is not defined and
+        dovecot_cron_record.month is not defined and
+        dovecot_cron_record.weekday is not defined)
+      - dovecot_cron_record.keys() | difference([
+        'name', 'job', 'cron_file', 'user', 'state', 'special_time',
+        'month', 'day', 'weekday', 'hour', 'minute']) | length == 0
+    fail_msg: "Dovecot cron records require name and cron_file; present records also require job"
+  loop: "{{ iac_blueprint.dovecot.cron | default([]) }}"
+  loop_control:
+    loop_var: dovecot_cron_record
+    label: "{{ dovecot_cron_record.name | default('invalid') }}"
+
+- name: "Guarding destructive Dovecot resource paths"
+  ansible.builtin.assert:
+    that:
+      - dovecot_destructive_path != '/'
+      - dovecot_destructive_path != ''
+      - dovecot_destructive_path is match('^/[A-Za-z0-9_.,+@%=:=-]+(?:/[A-Za-z0-9_.,+@%=:=-]+)*$')
+      - dovecot_destructive_path is not search('(^|/)\.{1,2}(/|$)')
+      - dovecot_destructive_path is not search('//')
+      - >-
+        (dovecot_destructive_path | regex_replace('/+', '/') |
+        regex_replace('/+$', '')) != '/'
+      - >-
+        (dovecot_destructive_path | regex_replace('/+', '/') |
+        regex_replace('/+$', '')).split('/') | length > 2
+      - >-
+        (dovecot_destructive_path | regex_replace('/+', '/') |
+        regex_replace('/+$', '')) not in
+        ['/etc/dovecot', '/etc/dovecot/conf.d', '/var/lib', '/var/lib/dovecot']
+    fail_msg: "Destructive Dovecot resource paths must be specific absolute paths, not / or a top-level directory"
+  loop: >-
+    {{ (iac_blueprint.dovecot.directories | default([]) | map(attribute='path') | list)
+       + (iac_blueprint.dovecot.files | default([]) | map(attribute='path') | list)
+       + (iac_blueprint.dovecot.binds | default([]) | map(attribute='source') | list)
+       + (iac_blueprint.dovecot.binds | default([]) | map(attribute='target') | list)
+       + (iac_blueprint.dovecot.git | default([]) | map(attribute='dest') | list) }}
+  loop_control:
+    loop_var: dovecot_destructive_path
+  when: state in ['absent', 'uninstall']

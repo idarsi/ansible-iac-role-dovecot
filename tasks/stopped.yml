@@ -11,11 +11,15 @@
 # ENSURING SYSTEMD SERVICE IS STOPPED
 ###############################################################################
 
+- name: "Collecting service facts"
+  ansible.builtin.service_facts:
+
 - name: "Ensuring Dovecot service is stopped"
   ansible.builtin.systemd:
     name: "{{ dovecot_service_name }}"
     state: "stopped"
     enabled: false
+  when: ansible_facts.services[dovecot_service_name ~ '.service'] is defined
 
 - name: "Writing log"
   ansible.builtin.include_tasks: log_write.yml
