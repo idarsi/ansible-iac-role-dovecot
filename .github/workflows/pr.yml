@@ -26,9 +26,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: "Install Ansible"
-        run: >-
-          python -m pip install
-           "ansible-core==2.21.3"
+        run: |
+          python -m pip install \
+            "ansible-core==2.21.3"
       - name: "Run syntax check"
         run: >-
           ansible-playbook --syntax-check
@@ -50,10 +50,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: "Install Ansible Lint"
-        run: >-
-          python -m pip install
-           "ansible-core==2.21.3"
-           "ansible-lint==26.8.0"
+        run: |
+          python -m pip install \
+            "ansible-core==2.21.3" \
+            "ansible-lint==26.8.0"
       - name: "Run production-profile lint"
         run: "ansible-lint --profile production"
         env:
@@ -75,11 +75,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: "Install Molecule and Ansible dependencies"
-        run: >-
-          python -m pip install
-           "ansible-core==2.21.3"
-           "molecule==26.8.0"
-           "molecule-plugins[podman]==26.7.15"
+        run: |
+          python -m pip install \
+            "ansible-core==2.21.3" \
+            "molecule==26.8.0" \
+            "molecule-plugins[podman]==26.7.15"
       - name: "Install required Ansible collections"
         run: "ansible-galaxy collection install -r molecule/default/collections.yml"
       - name: "Run validation scenario"
@@ -103,11 +103,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: "Install Molecule and Ansible dependencies"
-        run: >-
-          python -m pip install
-           "ansible-core==2.21.3"
-           "molecule==26.8.0"
-           "molecule-plugins[podman]==26.7.15"
+        run: |
+          python -m pip install \
+            "ansible-core==2.21.3" \
+            "molecule==26.8.0" \
+            "molecule-plugins[podman]==26.7.15"
       - name: "Install required Ansible collections"
         run: "ansible-galaxy collection install -r molecule/default/collections.yml"
       - name: "Run Rocky Linux 9 baseline scenario"
