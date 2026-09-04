@@ -25,26 +25,28 @@ images do not provide the Dovecot package without entitled RHEL repositories.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. The default scenario is the
-normal Dovecot baseline plus role-created-marker lifecycle coverage; it does
-not run destructive global states.
+normal Dovecot baseline only; it does not run destructive lifecycle states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
 and managed configuration-path guardrails. The validation scenario covers
 required TLS credentials, equal bind paths, unsafe cleanup paths, and rejected
 configuration-tree overrides. Its verify phase compares package, service,
-fstab, fixture, and generated-configuration state to ensure validation is
-non-mutating without assuming Dovecot is installed. Bind cleanup validation
+fstab, fixture, and generated-configuration state to ensure the validation
+state does not mutate managed Dovecot state; the test harness still writes
+disposable snapshots and fixtures. Bind cleanup validation
 also checks source/target ownership, rejects duplicate bind targets and
 duplicate or mismatched fstab entries, and rejects symlink purge sources. The
 minimal validation input includes an absent cron record with only `name`,
-`cron_file`, and `state`, preserving the documented removal form. The default
-baseline also exercises that explicit absent record while leaving the
-`cronie` package state unchanged; its role-local path removes the declared role-managed
-`/etc/cron.d/<cron_file>` whole file only when role ownership is proven. Full Dovecot absent/uninstall convergence is not
+`cron_file`, and `state`, preserving the documented removal form. Host-state
+cron guardrails are intentionally excluded from this validation-state
+scenario; they run in `cron_absent`. Full Dovecot absent/uninstall convergence is not
 part of this lightweight validation scenario. The snapshot is paired with
-a per-converge token stored in Molecule's ephemeral directory; verify requires
-the exact token match and fails if the snapshot or token is unavailable.
-The token is scoped to the container and Molecule ephemeral directory because
-this scenario has no externally supplied Molecule run identifier.
+a per-converge token stored in the non-empty `MOLECULE_EPHEMERAL_DIRECTORY`
+provided by Molecule; verify requires the exact token match and fails if the
+snapshot or current-run token is unavailable. The validation playbooks refuse
+to use a shared fallback path, so a fresh Molecule run cannot inherit stale
+controller token artifacts. The token is scoped to the container and Molecule
+ephemeral directory because this scenario has no externally supplied Molecule
+run identifier.
 
 GitHub Actions is configured in `.github/workflows/pr.yml` and
 `.github/workflows/scheduled.yml`. Every relevant job checks out the shared task
@@ -138,9 +140,7 @@ repositories.
   creates its restrictive ownership marker. The default converge has no absent
   cron declaration, so its idempotence run remains stable.
 - `molecule/validation` rejects duplicate/conflicting `cron_file` declarations
-  and verifies that an explicit absent record fails closed when its cron file
-  has no valid role-owned marker. It also covers changed files, malformed
-  markers, and insecure marker permissions.
+  using `state: validate` without host-state cron operations.
 - `molecule/global_absent` exercises global `absent` and `uninstall` with
   disposable unmarked cron files, verifying shared entry-level removal
   preserves unrelated entries instead of deleting the whole file. This does
@@ -148,8 +148,10 @@ repositories.
 - `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
   explicit absent cron record removes its marked file while leaving the `cronie`
   package state unchanged; it also verifies that a role-managed file deleted
-  externally is recreated and its manifest refreshed. It does not cover full
-  Dovecot lifecycle removal.
+  externally is recreated and its manifest refreshed. Its guardrail tests
+  directly exercise the role-local cron cleanup primitive for unowned, changed,
+  malformed, and insecure-marker cases. It does not cover full Dovecot
+  lifecycle removal.
 - The Git fixture creates a local repository inside the test container and
   verifies that the shared Git wrapper clones its committed file to
   `/var/lib/dovecot-config`.
