@@ -13,10 +13,20 @@
 
 - name: "Normalizing cron records by requested record state"
   ansible.builtin.set_fact:
-    dovecot_cron_present_records: >-
-      {{ iac_cron | rejectattr('state', 'equalto', 'absent') | list }}
+    dovecot_cron_omitted_state_records: >-
+      {{ iac_cron | rejectattr('state', 'defined') | list }}
+    dovecot_cron_explicit_present_records: >-
+      {{ iac_cron | selectattr('state', 'defined') |
+      rejectattr('state', 'equalto', 'absent') | list }}
     dovecot_cron_absent_records: >-
-      {{ iac_cron | selectattr('state', 'equalto', 'absent') | list }}
+      {{ iac_cron | selectattr('state', 'defined') |
+      selectattr('state', 'equalto', 'absent') | list }}
+
+- name: "Combining present cron records"
+  ansible.builtin.set_fact:
+    dovecot_cron_present_records: >-
+      {{ dovecot_cron_omitted_state_records +
+         dovecot_cron_explicit_present_records }}
 
 - name: "Ensuring Dovecot package is installed"
   ansible.builtin.include_tasks: package_present.yml
