@@ -342,7 +342,7 @@
       - dovecot_aux_record.job is not defined or dovecot_aux_record.job is string
       - dovecot_aux_record.version is not defined or dovecot_aux_record.version is string
       - dovecot_aux_record.single_branch is not defined or dovecot_aux_record.single_branch is boolean
-      - dovecot_aux_record.update is not defined or dovecot_aux_record.update is boolean
+      - dovecot_aux_record['update'] is not defined or dovecot_aux_record['update'] is boolean
       - dovecot_aux_record.force is not defined or dovecot_aux_record.force is boolean
       - dovecot_aux_record.recursive is not defined or dovecot_aux_record.recursive is boolean
       - dovecot_aux_record.accept_hostkey is not defined or dovecot_aux_record.accept_hostkey is boolean
