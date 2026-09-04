@@ -632,10 +632,14 @@
         dest: "/etc/cron.d/changed-cron"
         content: "original cron content\n"
         mode: "0644"
+      tags:
+        - molecule-idempotence-notest
     - name: "Reading changed cron fixture identity"
       ansible.builtin.stat:
         path: "/etc/cron.d/changed-cron"
       register: dovecot_changed_cron_stat
+      tags:
+        - molecule-idempotence-notest
     - name: "Writing identity-bound marker before change"
       ansible.builtin.copy:
         dest: "/etc/cron.d/.changed-cron.idarsi-managed"
@@ -645,11 +649,15 @@
               'size': dovecot_changed_cron_stat.stat.size,
               'mode': dovecot_changed_cron_stat.stat.mode} | to_json }}
         mode: "0600"
+      tags:
+        - molecule-idempotence-notest
     - name: "Changing cron file after marker creation"
       ansible.builtin.copy:
         dest: "/etc/cron.d/changed-cron"
         content: "changed cron content\n"
         mode: "0644"
+      tags:
+        - molecule-idempotence-notest
   tasks:
     - name: "Expect changed cron file to fail closed"
       block:
