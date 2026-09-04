@@ -14,14 +14,11 @@
     dovecot_git_fixture_file: "/var/lib/dovecot-config/README.md"
   tasks:
     - name: "Checking Dovecot package is installed"
-      ansible.builtin.command: "rpm -q dovecot"
-      register: dovecot_package_check
-      changed_when: false
+      ansible.builtin.package_facts:
+        manager: "auto"
 
     - name: "Checking Dovecot service is active"
-      ansible.builtin.command: "systemctl is-active dovecot"
-      register: dovecot_service_check
-      changed_when: false
+      ansible.builtin.service_facts:
 
     - name: "Checking Dovecot config file exists"
       ansible.builtin.stat:
@@ -97,8 +94,8 @@
     - name: "Verifying Molecule-managed Dovecot state"
       ansible.builtin.assert:
         that:
-          - dovecot_package_check.rc == 0
-          - dovecot_service_check.stdout == 'active'
+          - ansible_facts.packages.dovecot is defined
+          - ansible_facts.services['dovecot.service'].state == 'running'
           - dovecot_config_stat.stat.exists
           - dovecot_config_stat.stat.isreg
           - dovecot_config_content.content | b64decode is search('protocols = imap pop3')

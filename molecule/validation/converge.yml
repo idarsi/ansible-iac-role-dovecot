@@ -38,6 +38,9 @@
           dovecot_validation_existing_snapshot.stat.exists
         fail_msg: "A validation token exists without its snapshot; refusing to reuse stale state"
     - name: "Validating an existing validation snapshot before reuse"
+      when:
+        - dovecot_validation_existing_token.stat.exists
+        - dovecot_validation_existing_snapshot.stat.exists
       block:
         - name: "Reading an existing validation snapshot"
           ansible.builtin.slurp:
@@ -72,9 +75,6 @@
         - name: "Failing closed on invalid validation snapshot reuse"
           ansible.builtin.fail:
             msg: "Existing validation token/snapshot failed integrity checks; refusing idempotence reuse"
-      when:
-        - dovecot_validation_existing_token.stat.exists
-        - dovecot_validation_existing_snapshot.stat.exists
     - name: "Detecting validation snapshot initialization"
       ansible.builtin.set_fact:
         dovecot_validation_snapshot_initialized: >-
@@ -378,7 +378,10 @@
           ansible.builtin.assert:
             that:
               - ansible_failed_result is defined
-              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+              - >-
+                'Dovecot configuration directories must use the fixed
+                /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath
+                /etc/dovecot/conf.d' in dovecot_validation_failure_messages
 
 - name: "Reject an overridden managed configuration path"
   hosts: all
@@ -410,7 +413,10 @@
           ansible.builtin.assert:
             that:
               - ansible_failed_result is defined
-              - "'Dovecot configuration directories must use the fixed /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath /etc/dovecot/conf.d' in dovecot_validation_failure_messages"
+              - >-
+                'Dovecot configuration directories must use the fixed
+                /etc/dovecot tree and dovecot_idarsi_conf_path must be beneath
+                /etc/dovecot/conf.d' in dovecot_validation_failure_messages
 
 - name: "Reject an invalid proxy URL"
   hosts: all
