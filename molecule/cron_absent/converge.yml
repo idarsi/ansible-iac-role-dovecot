@@ -1,5 +1,5 @@
 ---
-- name: "Remove an explicit absent cron record without cronie"
+- name: "Remove an explicit absent cron record without changing cronie state"
   hosts: all
   become: false
   vars:
@@ -56,11 +56,10 @@
     - name: "Recording final package state"
       ansible.builtin.package_facts:
         manager: "auto"
-    - name: "Checking explicit absent cron did not install cronie"
+    - name: "Checking explicit absent cron left cronie package state unchanged"
       ansible.builtin.assert:
         that:
           - ("cronie" in ansible_facts.packages) == dovecot_cronie_initial
-          - "'cronie' not in ansible_facts.packages"
         fail_msg: "Explicit absent cron handling changed cronie package state"
 
 - name: "Recover a managed cron file deleted externally"

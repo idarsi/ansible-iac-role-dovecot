@@ -186,8 +186,8 @@ Cron record state is evaluated independently for each record. If `state` is
 omitted or set to `present`, the record is ensured by the present/install
 states and requires a `job`. If `state` is `absent`, the record is removed by
 removing the role-managed whole file `/etc/cron.d/<cron_file>`; it does not
-require a `job` and does not cause `cronie` to be installed by the
-present/install states. This whole-file removal is intentional: a cron file
+require a `job` and leaves the `cronie` package state unchanged. This
+whole-file removal is intentional: a cron file
 named by an explicit absent record is owned by this role. `cron_file` is a
 validated basename and cannot select an arbitrary path. For example:
 

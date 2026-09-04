@@ -593,20 +593,14 @@
   tasks:
     - name: "Expect unowned explicit absent cron file to fail"
       block:
-        - name: "Running role with an unowned explicit absent cron file"
-          ansible.builtin.include_role:
-            name: "ansible-iac-role-dovecot"
+        - name: "Running the explicit absent cron task for an unowned file"
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../tasks/cron_absent_record.yml"
+          vars:
+            dovecot_cron_absent_record: "{{ iac_blueprint.dovecot.cron[0] }}"
         - name: "Failing if unowned cron file was removed"
           ansible.builtin.fail:
             msg: "Unowned cron file was removed"
       rescue:
-        - name: "Collecting unowned-cron failure messages"
-          ansible.builtin.set_fact:
-            dovecot_unowned_cron_failure_messages: >-
-              {{ [ansible_failed_result.msg | default(''),
-                 (ansible_failed_task.args | default({})).fail_msg | default('')] +
-                 (ansible_failed_result.results | default([]) |
-                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
         - name: "Checking unowned cron file remains intact"
           ansible.builtin.stat:
             path: "/etc/cron.d/unowned-cron"
@@ -615,9 +609,8 @@
           ansible.builtin.assert:
             that:
               - ansible_failed_result is defined
-              - >-
-                "Refusing to remove unowned Dovecot cron file unowned-cron" in
-                dovecot_unowned_cron_failure_messages
+              - ansible_failed_task.name == "Rejecting removal of an unowned or changed cron file"
+              - ansible_failed_result.msg == "Refusing to remove unowned or changed Dovecot cron file unowned-cron"
               - dovecot_unowned_cron_stat.stat.exists
 
 - name: "Reject changed explicitly absent cron file"

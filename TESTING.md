@@ -12,7 +12,7 @@ Platform/image               | Ansible or application versions | Molecule scenar
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `default` | Dovecot installation, configuration, service startup, shared filesystem resources, bind migration, cron, and local Git checkout
 Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `rocky10` | Same Dovecot and shared-task coverage on Rocky Linux 10 UBI
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged/not-installed cronie state
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall cron entry-level removal from unmarked files while preserving unrelated entries
 
 The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Podman,
@@ -37,8 +37,8 @@ also checks source/target ownership, rejects duplicate bind targets and
 duplicate or mismatched fstab entries, and rejects symlink purge sources. The
 minimal validation input includes an absent cron record with only `name`,
 `cron_file`, and `state`, preserving the documented removal form. The default
-baseline also exercises that explicit absent record without installing
-`cronie`; its role-local path removes the declared role-managed
+baseline also exercises that explicit absent record while leaving the
+`cronie` package state unchanged; its role-local path removes the declared role-managed
 `/etc/cron.d/<cron_file>` whole file only when role ownership is proven. Full Dovecot absent/uninstall convergence is not
 part of this lightweight validation scenario. The snapshot is paired with
 a per-converge token stored in Molecule's ephemeral directory; verify requires
@@ -146,8 +146,8 @@ repositories.
   preserves unrelated entries instead of deleting the whole file. This does
   not claim full Dovecot lifecycle absent/uninstall coverage.
 - `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
-  explicit absent cron record removes its marked file without installing or
-  changing `cronie`; it also verifies that a role-managed file deleted
+  explicit absent cron record removes its marked file while leaving the `cronie`
+  package state unchanged; it also verifies that a role-managed file deleted
   externally is recreated and its manifest refreshed. It does not cover full
   Dovecot lifecycle removal.
 - The Git fixture creates a local repository inside the test container and
