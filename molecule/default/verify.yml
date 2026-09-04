@@ -55,6 +55,11 @@
         path: "{{ dovecot_cron_file }}"
       register: dovecot_cron_file_check
 
+    - name: "Checking explicitly absent cron file"
+      ansible.builtin.stat:
+        path: "/etc/cron.d/dovecot_removed"
+      register: dovecot_absent_cron_file_check
+
     - name: "Reading shared managed cron file"
       ansible.builtin.slurp:
         path: "{{ dovecot_cron_file }}"
@@ -116,6 +121,7 @@
           - dovecot_shared_file_check.stat.exists
           - (dovecot_shared_file_content.content | b64decode) == 'dovecot molecule shared fixture\n'
           - dovecot_cron_file_check.stat.exists
+          - not dovecot_absent_cron_file_check.stat.exists
           - (dovecot_cron_file_content.content | b64decode) is search('/bin/true')
           - dovecot_git_fixture_file_check.stat.exists
           - (dovecot_git_fixture_content.content | b64decode) == 'dovecot molecule git fixture\n'

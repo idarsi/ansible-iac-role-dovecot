@@ -110,6 +110,10 @@ repositories.
 - `molecule/default` and `molecule/rocky10` validate that the role installs the
   Dovecot package,
   writes the generated configuration, and starts the Dovecot service.
+- `molecule/default` first runs a focused `state: present` lifecycle check with
+  an all-absent cron declaration. It precreates the entry, verifies removal,
+  and compares cronie package state before and after so the check remains
+  valid when the base image already contains cronie.
 - `molecule/validation` runs `state: validate` for a minimal blueprint and
   asserts actionable failures for equal bind paths, incomplete TLS, invalid
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
@@ -124,7 +128,10 @@ repositories.
   directory, mounts the source at the target path, and writes the expected
   `/etc/fstab` entry.
 - The cron fixture verifies that the shared cron wrapper creates
-  `/etc/cron.d/dovecot_heartbeat` with the expected command.
+  `/etc/cron.d/dovecot_heartbeat` with the expected command and routes an
+  pre-existing `/etc/cron.d/dovecot_removed` entry to the shared removal
+  wrapper. The absent record has no job, and the fixture is excluded from
+  idempotence reruns so the second converge remains unchanged.
 - The Git fixture creates a local repository inside the test container and
   verifies that the shared Git wrapper clones its committed file to
   `/var/lib/dovecot-config`.

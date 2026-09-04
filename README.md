@@ -133,6 +133,9 @@ library under `tasks/shared`. Add these optional fields under
 - `cron` maps to `iac_cron`
 - `git` maps to `iac_git_repos`
 
+The role API is `iac_blueprint.dovecot.cron`; `iac_cron` is only the internal
+variable passed to the shared task wrappers.
+
 Shared host resource example
 ----------------------------
 
@@ -178,6 +181,21 @@ Git URL is a placeholder and must be replaced with an accessible repository
 before that entry is enabled. Bind records manage host storage and are not
 automatically connected to Dovecot's mail location unless the configured
 `mail_location` points to the bind target.
+
+Cron record state is evaluated independently for each record. If `state` is
+omitted or set to `present`, the record is ensured by the present/install
+states and requires a `job`. If `state` is `absent`, the record is removed by
+its `name` and `cron_file`; it does not require a `job` and does not cause
+`cronie` to be installed by the present/install states. For example:
+
+```yaml
+iac_blueprint:
+  dovecot:
+    cron:
+      - name: "dovecot-mail-check"
+        state: "absent"
+        cron_file: "dovecot-mail-check"
+```
 
 Virtual-mail example
 --------------------
