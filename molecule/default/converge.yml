@@ -19,6 +19,15 @@
     - name: "Recording initial cronie package state"
       ansible.builtin.set_fact:
         dovecot_cronie_was_installed: "{{ 'cronie' in ansible_facts.packages }}"
+    - name: "Ensuring cron directory exists for the stale entry fixture"
+      ansible.builtin.file:
+        path: /etc/cron.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - molecule-idempotence-notest
     - name: "Precreating cron entry targeted for removal"
       ansible.builtin.copy:
         dest: /etc/cron.d/dovecot_removed_only
