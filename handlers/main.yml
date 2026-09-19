@@ -1,0 +1,25 @@
+---
+- name: "Reload Dovecot after managed resource changes"
+  listen: "dovecot configuration changed"
+  when:
+    - not (dovecot_configuration_transaction_handled | default(false) | bool)
+    - state not in ['absent', 'uninstall']
+    - ansible_facts.services is defined
+    - ansible_facts.services[dovecot_service_name ~ '.service'] is defined
+    - ansible_facts.services[dovecot_service_name ~ '.service'].state == 'running'
+  ansible.builtin.include_tasks: reload_transaction.yml
+
+- name: "Discard Dovecot rollback state when reload is not required"
+  listen: "dovecot configuration changed"
+  ansible.builtin.include_tasks: "configuration_transaction_cleanup.yml"
+  vars:
+    dovecot_configuration_cleanup_records:
+      - artifact: "{{ dovecot_previous_config_path }}"
+        marker: "{{ dovecot_previous_config_marker_path }}"
+  when:
+    - not (dovecot_configuration_transaction_handled | default(false) | bool)
+    - state not in ['absent', 'uninstall']
+    - ansible_facts.services is not defined or
+      ansible_facts.services[dovecot_service_name ~ '.service'] is not defined or
+      ansible_facts.services[dovecot_service_name ~ '.service'].state != 'running'
+  no_log: true

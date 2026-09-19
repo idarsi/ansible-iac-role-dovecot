@@ -1,3 +1,21 @@
 ---
-- name: "Writing task log through shared tasks"
-  ansible.builtin.include_tasks: shared/log_write.yml
+- name: "Validating task log entry"
+  ansible.builtin.assert:
+    that:
+      - iac_log_write is string
+      - iac_log_write is not search('[\r\n]')
+    fail_msg: "Task log entries must be single-line strings"
+  when: iac_ansible_report | default(false)
+
+- name: "Writing task log safely"
+  ansible.builtin.lineinfile:
+    path: "{{ iac_ansible_report_tasks_path }}"
+    line: "{{ iac_log_write }}"
+    insertafter: EOF
+    create: true
+    owner: "root"
+    group: "root"
+    mode: "0600"
+    unsafe_writes: false
+  when: iac_ansible_report | default(false)
+  no_log: true

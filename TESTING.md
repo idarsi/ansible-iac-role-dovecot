@@ -5,6 +5,19 @@ current scenarios cover Rocky Linux 9 and 10 container workflows. The matrix is
 intentionally narrower than the complete list of operating systems supported
 by the role.
 
+The dependency-free local guard test checks the rollback task structure for
+changed live configuration, changed `.previous` content or metadata, marker
+replacement, and cleanup races. It does not simulate an OS-level concurrent
+writer; the final `stat`/checksum checks are the production guard.
+
+The Rocky distribution Dovecot package can omit requested protocol or
+authentication mechanisms from effective runtime output, depending on the
+packaged Dovecot version and modules. The baseline verify phase therefore
+asserts the exact requested `protocols` and `auth_mechanisms` lines in the
+role-managed file, while checking that effective runtime values are a
+non-empty supported subset and retain IMAP, plain authentication, and the
+plaintext/TLS security policy.
+
 ## Automated test matrix
 
 Platform/image               | Ansible or application versions | Molecule scenarios | Main coverage
@@ -13,7 +26,7 @@ Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman 
 Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `rocky10` | Same Dovecot and shared-task coverage on Rocky Linux 10 UBI
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall cron entry-level removal from unmarked files while preserving unrelated entries
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
 
 The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Podman,
 systemd, and privileged mode so that the bind-mount fixture can exercise
@@ -24,7 +37,8 @@ they are not included in the current Molecule matrix because the public UBI
 images do not provide the Dovecot package without entitled RHEL repositories.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
-`global_absent` scenario with disposable fixtures. The default scenario is the
+`global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
+and transaction artifacts are expected to fail closed and remain present. The default scenario is the
 normal Dovecot baseline only; it does not run destructive lifecycle states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
 and managed configuration-path guardrails. The validation scenario covers
@@ -103,8 +117,25 @@ the shared environment is not a reproduction of CI's collection selection.
 This repository does not modify the shared environment. CI always installs the
 pinned collections into its isolated runner environment.
 
-Pull requests run syntax, production-profile lint, validation, the Rocky Linux
-9 `default` baseline, and `cron_absent`. The pull-request workflow is also manually
+The current checkout has `tasks/shared` initialized at the pinned commit
+`d70d58e`. A clean checkout made without submodules cannot run shared-resource
+or Molecule execution until the dependency is initialized. For a reproducible
+clean checkout, run:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+CI uses the equivalent `actions/checkout` option `submodules: recursive`.
+If the submodule cannot be fetched, role-local syntax and lint checks can still
+run, but shared-resource and Molecule coverage remains unavailable. Neither the
+shared checkout nor the shared test environment is modified to work around
+that portability limitation.
+
+Pull requests run the dependency-free transaction guard check, syntax,
+production-profile lint, validation, the Rocky Linux 9 `default` baseline, and
+`cron_absent`. The pull-request workflow is also manually
 dispatchable and runs that same fast set. A scheduled run occurs every
 Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default`,
 `rocky10`, and `global_absent` baseline jobs in parallel. The scheduled workflow is manually
@@ -120,8 +151,10 @@ repositories.
   Dovecot package,
   writes the generated configuration, and starts the Dovecot service.
 - `molecule/default` is limited to the normal Dovecot baseline convergence and
-  verifies the present cron file and its restrictive ownership marker. It does
-  not run destructive lifecycle states.
+  verifies the present cron file, restrictive ownership markers, managed
+  configuration permissions, and absence of the transactional candidate after
+  convergence. Molecule's idempotence phase covers the unchanged second run;
+  it does not run destructive lifecycle states.
 - `molecule/validation` runs `state: validate` for a minimal blueprint and
   asserts actionable failures for equal bind paths, incomplete TLS, invalid
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
@@ -141,10 +174,22 @@ repositories.
   cron declaration, so its idempotence run remains stable.
 - `molecule/validation` rejects duplicate/conflicting `cron_file` declarations
   using `state: validate` without host-state cron operations.
+- `molecule/validation` also checks the protected `extra_parameters` rejection
+  message and newline-injection guard. Configuration rollback on a failed live
+  Dovecot validation is fail-closed by task structure, but is not exercised in
+  the validation-only container because it has no live configuration tree. The
+   forced systemd reload-failure path is exercised in `molecule/default` with a
+   test-only one-shot override and verifies restoration of the exact pre-run
+   configuration and marker. A later resource failure is intentionally not a
+   full transaction: filesystem, Git, cron, bind, and service changes are not
+   destructively rolled back. This residual behavior is documented and must be
+   checked by operators after a failed convergence.
 - `molecule/global_absent` exercises global `absent` and `uninstall` with
   disposable unmarked cron files, verifying shared entry-level removal
-  preserves unrelated entries instead of deleting the whole file. This does
-  not claim full Dovecot lifecycle absent/uninstall coverage.
+  preserves unrelated entries instead of deleting the whole file. It also
+  verifies stale managed configuration, `.candidate`, and `.previous`
+  transaction artifacts are refused and preserved when unowned. This does not
+  claim full Dovecot lifecycle absent/uninstall coverage.
 - `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
   explicit absent cron record removes its marked file while leaving the `cronie`
   package state unchanged; it also verifies that a role-managed file deleted
@@ -164,8 +209,9 @@ repositories.
 
 The current scenarios do not test full Dovecot lifecycle `absent` or
 `uninstall` convergence, SELinux-specific shared filesystem records, or remote
-Git authentication. The `global_absent` scenario covers only shared cron
-entry-level behavior for those states.
+Git authentication. The `global_absent` scenario covers transaction-artifact
+cleanup and shared cron entry-level behavior for those states, without
+installing or removing a complete Dovecot package lifecycle.
 
 ## Running tests
 
@@ -173,6 +219,7 @@ The CI commands, after the workflow has checked out the repository and
 installed its isolated dependencies, are:
 
 ```bash
+python tests/test_transaction_guards.py
 ANSIBLE_ROLES_PATH=".." ansible-playbook --syntax-check \
   -i docs/inventory-example.yml docs/playbook-example.yml
 ANSIBLE_ROLES_PATH=".." ansible-lint --profile production

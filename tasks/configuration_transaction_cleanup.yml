@@ -1,0 +1,6 @@
+---
+- name: "Cleaning each Dovecot transaction artifact with an exact ownership guard"
+  ansible.builtin.include_tasks: configuration_transaction_cleanup_record.yml
+  loop: "{{ dovecot_configuration_cleanup_records }}"
+  loop_control:
+    loop_var: dovecot_configuration_cleanup_record

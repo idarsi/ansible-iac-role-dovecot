@@ -1,0 +1,37 @@
+---
+- name: "STATE: Validate Dovecot inventory only"
+  ansible.builtin.debug:
+    msg: "Dovecot blueprint validation succeeded"
+  when: state == 'validate'
+
+- name: "STATE: Ensure Dovecot installation and configuration is present"
+  ansible.builtin.include_tasks: install.yml
+  when: state == 'install'
+
+- name: "STATE: Ensure Dovecot installation and configuration is absent"
+  ansible.builtin.include_tasks: uninstall.yml
+  when: state == 'uninstall'
+
+- name: "STATE: Ensure Dovecot installation is present"
+  ansible.builtin.include_tasks: present.yml
+  when: state == 'present'
+
+- name: "STATE: Ensure Dovecot installation is absent"
+  ansible.builtin.include_tasks: absent.yml
+  when: state == 'absent'
+
+- name: "STATE: Ensure Dovecot configuration is present"
+  ansible.builtin.include_tasks: configuration_present.yml
+  when: state == 'configuration_present'
+
+- name: "STATE: Ensure Dovecot is started"
+  ansible.builtin.include_tasks: started.yml
+  when: state == 'started'
+
+- name: "STATE: Ensure Dovecot is stopped"
+  ansible.builtin.include_tasks: stopped.yml
+  when: state == 'stopped'
+
+- name: "STATE: Ensure Dovecot is restarted"
+  ansible.builtin.include_tasks: restarted.yml
+  when: state == 'restarted'

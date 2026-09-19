@@ -1,16 +1,4 @@
 ---
-###############################################################################
-#
-# configuration_present.yml
-#
-# @author Arsi Atomi
-#
-###############################################################################
-
-###############################################################################
-# CHECKING REQUIREMENTS
-###############################################################################
-
 - name: "Checking if required variables are defined"
   ansible.builtin.assert:
     that:
@@ -20,9 +8,111 @@
       - dovecot_idarsi_conf_path is defined
     fail_msg: "All tests did not pass"
 
-###############################################################################
-# ENSURING DOVECOT CONFIGURATION
-###############################################################################
+- name: "Setting self-contained Dovecot transaction paths"
+  ansible.builtin.set_fact:
+    dovecot_previous_config_path: >-
+      {{ dovecot_previous_config_path | default(dovecot_idarsi_conf_path ~ '.previous') }}
+    dovecot_previous_config_marker_path: >-
+      {{ dovecot_previous_config_marker_path | default(dovecot_idarsi_conf_path ~ '.previous' ~ dovecot_idarsi_marker_suffix) }}
+    dovecot_configuration_marker_path: >-
+      {{ dovecot_configuration_marker_path | default(dovecot_idarsi_conf_path ~ dovecot_idarsi_marker_suffix) }}
+    dovecot_candidate_config_marker_path: >-
+      {{ dovecot_candidate_config_marker_path | default(dovecot_idarsi_conf_path ~ '.candidate' ~ dovecot_idarsi_marker_suffix) }}
+
+- name: "Initializing the per-run Dovecot transaction context"
+  ansible.builtin.set_fact:
+    dovecot_pre_run_transaction_active: "{{ dovecot_pre_run_transaction_active | default(false) | bool }}"
+    dovecot_pre_run_snapshot_used: "{{ dovecot_pre_run_snapshot_used | default(false) | bool }}"
+    dovecot_pre_run_snapshot_created: "{{ dovecot_pre_run_snapshot_created | default(false) | bool }}"
+
+- name: "Checking the live Dovecot configuration for direct task use"
+  ansible.builtin.stat:
+    path: "{{ dovecot_idarsi_conf_path }}"
+    checksum_algorithm: "sha256"
+  register: dovecot_configuration_live_stat
+
+- name: "Checking the direct-task rollback snapshot"
+  ansible.builtin.stat:
+    path: "{{ dovecot_previous_config_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_configuration_previous_stat
+
+- name: "Checking the direct-task rollback snapshot marker"
+  ansible.builtin.stat:
+    path: "{{ dovecot_previous_config_marker_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_configuration_previous_marker_stat
+
+- name: "Reading the direct-task rollback snapshot marker"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_previous_config_marker_path }}"
+  register: dovecot_configuration_previous_marker_content
+  when: dovecot_configuration_previous_marker_stat.stat.isreg | default(false)
+
+- name: "Checking the live Dovecot ownership marker for direct task use"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_marker_path }}"
+    follow: false
+  register: dovecot_configuration_live_marker_stat
+
+- name: "Reading the live Dovecot ownership marker for direct task use"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_configuration_marker_path }}"
+  register: dovecot_configuration_live_marker_content
+  when: dovecot_configuration_live_marker_stat.stat.isreg | default(false)
+
+- name: "Recording direct-task rollback marker state"
+  ansible.builtin.set_fact:
+    dovecot_previous_marker_existed: "{{ dovecot_configuration_live_marker_stat.stat.exists | default(false) }}"
+    dovecot_previous_marker_content: "{{ dovecot_configuration_live_marker_content.content | default('') }}"
+    dovecot_previous_marker_uid: "{{ dovecot_configuration_live_marker_stat.stat.uid | default(0) }}"
+    dovecot_previous_marker_gid: "{{ dovecot_configuration_live_marker_stat.stat.gid | default(0) }}"
+    dovecot_previous_marker_mode: "{{ dovecot_configuration_live_marker_stat.stat.mode | default('0600') }}"
+
+- name: "Refusing unsafe direct-task transaction state"
+  ansible.builtin.assert:
+    that:
+      - >-
+        not dovecot_configuration_live_marker_stat.stat.exists | default(false) or
+        (dovecot_configuration_live_marker_stat.stat.isreg | default(false) and
+         dovecot_configuration_live_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_configuration_live_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_configuration_live_marker_stat.stat.mode | default('') == '0600' and
+         (dovecot_configuration_live_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+      - >-
+        (not dovecot_configuration_previous_stat.stat.exists | default(false) and
+         not dovecot_configuration_previous_marker_stat.stat.exists | default(false)) or
+         (dovecot_configuration_previous_stat.stat.isreg | default(false) and
+         dovecot_configuration_previous_marker_stat.stat.isreg | default(false) and
+         dovecot_configuration_previous_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_configuration_previous_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_configuration_previous_marker_stat.stat.mode | default('') == '0600' and
+         (dovecot_configuration_previous_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+    fail_msg: "Refusing unsafe or stale direct-task Dovecot transaction state"
+
+- name: "Recording whether a valid Dovecot recovery snapshot will be reused"
+  ansible.builtin.set_fact:
+    dovecot_pre_run_snapshot_used: >-
+      {{ dovecot_configuration_previous_stat.stat.isreg | default(false) and
+         dovecot_configuration_previous_stat.stat.uid | default(-1) == 0 and
+         dovecot_configuration_previous_stat.stat.gid | default(-1) == 0 and
+         dovecot_configuration_previous_stat.stat.mode | default('') == '0600' and
+         dovecot_configuration_previous_marker_stat.stat.isreg | default(false) and
+         dovecot_configuration_previous_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_configuration_previous_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_configuration_previous_marker_stat.stat.mode | default('') == '0600' and
+             (dovecot_configuration_previous_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content }}
+
+- name: "Recording the validated Dovecot snapshot identity"
+  ansible.builtin.set_fact:
+    dovecot_previous_config_checksum: "{{ dovecot_configuration_previous_stat.stat.checksum | default('') }}"
+    dovecot_previous_config_uid: "{{ dovecot_configuration_previous_stat.stat.uid | default(-1) }}"
+    dovecot_previous_config_gid: "{{ dovecot_configuration_previous_stat.stat.gid | default(-1) }}"
+    dovecot_previous_config_mode: "{{ dovecot_configuration_previous_stat.stat.mode | default('') }}"
+    dovecot_previous_marker_checksum: "{{ dovecot_configuration_previous_marker_stat.stat.checksum | default('') }}"
+    dovecot_previous_marker_content_recorded: "{{ dovecot_configuration_previous_marker_content.content | default('') }}"
 
 - name: "Checking Dovecot version"
   ansible.builtin.command:
@@ -38,33 +128,362 @@
     group: "root"
     mode: "0755"
 
-- name: "Ensuring Dovecot IDARSI configuration is present"
-  ansible.builtin.template:
-    src: "99-idarsi.conf.j2"
-    dest: "{{ dovecot_idarsi_conf_path }}"
-    owner: "root"
-    group: "root"
-    mode: "0644"
-  register: dovecot_idarsi_conf
+- name: "Preparing transactional Dovecot configuration validation"
+  when: not ansible_check_mode
+  block:
+    - name: "Removing interrupted Dovecot configuration transaction artifacts"
+      ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+      vars:
+        dovecot_configuration_cleanup_records:
+          - artifact: "{{ dovecot_idarsi_conf_path }}.candidate"
+            marker: "{{ dovecot_idarsi_conf_path }}.candidate{{ dovecot_idarsi_marker_suffix }}"
 
-- name: "Checking Dovecot configuration"
-  ansible.builtin.command:
-    cmd: "doveconf -n"
-  register: dovecot_check
-  changed_when: false
-  failed_when: dovecot_check.rc != 0
+    - name: "Rendering candidate Dovecot configuration"
+      ansible.builtin.template:
+        src: "99-idarsi.conf.j2"
+        dest: "{{ dovecot_idarsi_conf_path }}.candidate"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+        backup: false
+      diff: false
+      vars:
+        # Effective validation must follow the version reported by the
+        # installed binary, not the pre-bootstrap compatibility candidate.
+        dovecot_render_version: "{{ dovecot_version.stdout }}"
+      no_log: true
+      changed_when: false
 
-- name: "Collecting service facts"
-  ansible.builtin.service_facts:
+    - name: "Marking the rendered Dovecot candidate"
+      ansible.builtin.copy:
+        content: "{{ dovecot_idarsi_marker_content }}"
+        dest: "{{ dovecot_candidate_config_marker_path }}"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      diff: false
+      no_log: true
+      changed_when: false
 
-- name: "Reloading Dovecot when configuration changed"
-  ansible.builtin.systemd:
-    name: "{{ dovecot_service_name }}"
-    state: "reloaded"
-  when:
-    - dovecot_idarsi_conf.changed
-    - ansible_facts.services[dovecot_service_name ~ '.service'] is defined
-    - ansible_facts.services[dovecot_service_name ~ '.service'].state == 'running'
+    - name: "Checking whether the managed configuration will change"
+      ansible.builtin.stat:
+        path: "{{ dovecot_idarsi_conf_path }}"
+        checksum_algorithm: "sha256"
+      register: dovecot_live_config_stat
+
+    - name: "Checking the rendered candidate checksum"
+      ansible.builtin.stat:
+        path: "{{ dovecot_idarsi_conf_path }}.candidate"
+        follow: false
+        checksum_algorithm: "sha256"
+      register: dovecot_candidate_config_stat
+
+    - name: "Recording the configuration rollback boundary"
+      ansible.builtin.set_fact:
+        dovecot_previous_config_path: "{{ dovecot_idarsi_conf_path }}.previous"
+        dovecot_previous_config_existed: "{{ dovecot_live_config_stat.stat.exists }}"
+        dovecot_configuration_needs_install: >-
+          {{ not dovecot_live_config_stat.stat.exists or
+             dovecot_live_config_stat.stat.checksum != dovecot_candidate_config_stat.stat.checksum }}
+        dovecot_pre_run_transaction_active: >-
+          {{ not dovecot_live_config_stat.stat.exists or
+             dovecot_live_config_stat.stat.checksum != dovecot_candidate_config_stat.stat.checksum or
+             dovecot_pre_run_snapshot_used | default(false) | bool }}
+        dovecot_transaction_expected_config_checksum: "{{ dovecot_candidate_config_stat.stat.checksum }}"
+
+    - name: "Creating Dovecot validation tree"
+      ansible.builtin.tempfile:
+        state: "directory"
+        prefix: "dovecot-validate-"
+      register: dovecot_validation_directory
+      changed_when: false
+
+    - name: "Copying the live Dovecot configuration to the validation tree"
+      ansible.builtin.copy:
+        src: "{{ dovecot_etc_directory }}/"
+        dest: "{{ dovecot_validation_directory.path }}/"
+        remote_src: true
+        mode: "preserve"
+      no_log: true
+      changed_when: false
+
+    - name: "Finding staged Dovecot configuration files"
+      ansible.builtin.find:
+        paths: "{{ dovecot_validation_directory.path }}"
+        file_type: "file"
+        patterns:
+          - "*.conf"
+          - "*.conf.*"
+      register: dovecot_staged_config_files
+
+    - name: "Making staged Dovecot includes self-contained"
+      ansible.builtin.replace:
+        path: "{{ dovecot_staged_config_file.path }}"
+        regexp: "{{ dovecot_etc_directory | regex_escape }}"
+        replace: "{{ dovecot_validation_directory.path }}"
+      loop: "{{ dovecot_staged_config_files.files }}"
+      loop_control:
+        loop_var: dovecot_staged_config_file
+      no_log: true
+      changed_when: false
+
+    - name: "Installing candidate in the validation tree"
+      ansible.builtin.copy:
+        src: "{{ dovecot_idarsi_conf_path }}.candidate"
+        dest: "{{ dovecot_validation_directory.path }}{{ dovecot_idarsi_conf_path | regex_replace('^' ~ dovecot_etc_directory, '') }}"
+        remote_src: true
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      diff: false
+      no_log: true
+      changed_when: false
+
+    - name: "Validating the complete staged Dovecot configuration"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-n"
+          - "-c"
+          - "{{ dovecot_validation_directory.path }}/dovecot.conf"
+      changed_when: false
+      no_log: true
+
+    - name: "Creating the rollback snapshot immediately before configuration replacement"
+      when:
+        - dovecot_configuration_needs_install | bool
+        - dovecot_configuration_live_stat.stat.exists | default(false)
+        - not dovecot_configuration_previous_stat.stat.exists | default(false)
+      block:
+        - name: "Capturing the live Dovecot configuration for transaction rollback"
+          ansible.builtin.copy:
+            src: "{{ dovecot_idarsi_conf_path }}"
+            dest: "{{ dovecot_previous_config_path }}"
+            remote_src: true
+            owner: "root"
+            group: "root"
+            mode: "0600"
+            force: false
+          diff: false
+          no_log: true
+          changed_when: false
+        - name: "Marking the direct-task rollback snapshot"
+          ansible.builtin.copy:
+            content: "{{ dovecot_idarsi_marker_content }}"
+            dest: "{{ dovecot_previous_config_marker_path }}"
+            owner: "root"
+            group: "root"
+            mode: "0600"
+            force: false
+          diff: false
+          no_log: true
+          changed_when: false
+        - name: "Recording the created Dovecot snapshot identity"
+          ansible.builtin.stat:
+            path: "{{ dovecot_snapshot_identity_path.path }}"
+            follow: false
+            checksum_algorithm: "sha256"
+          loop:
+            - { path: "{{ dovecot_previous_config_path }}" }
+            - { path: "{{ dovecot_previous_config_marker_path }}" }
+          loop_control:
+            loop_var: dovecot_snapshot_identity_path
+          register: dovecot_created_snapshot_identity
+          no_log: true
+        - name: "Recording the created Dovecot snapshot checksums"
+          ansible.builtin.set_fact:
+            dovecot_previous_config_checksum: "{{ dovecot_created_snapshot_identity.results[0].stat.checksum }}"
+            dovecot_previous_config_uid: "{{ dovecot_created_snapshot_identity.results[0].stat.uid }}"
+            dovecot_previous_config_gid: "{{ dovecot_created_snapshot_identity.results[0].stat.gid }}"
+            dovecot_previous_config_mode: "{{ dovecot_created_snapshot_identity.results[0].stat.mode }}"
+            dovecot_previous_marker_checksum: "{{ dovecot_created_snapshot_identity.results[1].stat.checksum }}"
+            dovecot_previous_marker_content_recorded: "{{ dovecot_previous_marker_content }}"
+          no_log: true
+        - name: "Recording the direct-task snapshot transaction context"
+          ansible.builtin.set_fact:
+            dovecot_pre_run_snapshot_created: true
+            dovecot_pre_run_snapshot_used: true
+            dovecot_pre_run_transaction_active: true
+      rescue:
+        - name: "Removing the partial direct-task rollback snapshot"
+          ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+          vars:
+            dovecot_configuration_cleanup_records:
+              - artifact: "{{ dovecot_previous_config_path }}"
+                marker: "{{ dovecot_previous_config_marker_path }}"
+                allow_orphan_artifact: true
+        - name: "Failing closed after partial direct-task snapshot creation"
+          ansible.builtin.fail:
+            msg: "Dovecot direct-task snapshot transaction failed; partial rollback state was not retained"
+
+    - name: "Atomically installing the validated Dovecot configuration"
+      ansible.builtin.copy:
+        src: "{{ dovecot_idarsi_conf_path }}.candidate"
+        dest: "{{ dovecot_idarsi_conf_path }}"
+        remote_src: true
+        mode: "0600"
+        owner: "root"
+        group: "root"
+      diff: false
+      register: dovecot_idarsi_conf_installed
+      notify: "dovecot configuration changed"
+      no_log: true
+
+    - name: "Marking the managed Dovecot configuration"
+      ansible.builtin.copy:
+        content: "{{ dovecot_idarsi_marker_content }}"
+        dest: "{{ dovecot_configuration_marker_path }}"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      diff: false
+      when: dovecot_idarsi_conf_installed is defined
+      no_log: true
+
+    - name: "Recording the installed Dovecot configuration identity"
+      ansible.builtin.set_fact:
+        dovecot_managed_config_checksum: "{{ dovecot_candidate_config_stat.stat.checksum }}"
+      when: dovecot_idarsi_conf_installed is defined
+      no_log: true
+  rescue:
+    - name: "Checking managed configuration ownership before direct rollback"
+      ansible.builtin.stat:
+        path: "{{ dovecot_idarsi_conf_path }}"
+        follow: false
+        checksum_algorithm: "sha256"
+      register: dovecot_direct_rollback_marker_stat
+      when: dovecot_idarsi_conf_installed is defined
+
+    - name: "Checking managed marker ownership before direct rollback"
+      ansible.builtin.stat:
+        path: "{{ dovecot_configuration_marker_path }}"
+        follow: false
+        checksum_algorithm: "sha256"
+      register: dovecot_direct_rollback_live_marker_stat
+      when: dovecot_idarsi_conf_installed is defined
+
+    - name: "Reading managed marker before direct rollback"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_configuration_marker_path }}"
+      register: dovecot_direct_rollback_marker_content
+      when:
+        - dovecot_idarsi_conf_installed is defined
+        - dovecot_direct_rollback_live_marker_stat.stat.isreg | default(false)
+      no_log: true
+
+    - name: "Failing closed before direct rollback of a raced configuration"
+      ansible.builtin.assert:
+        that:
+          - dovecot_direct_rollback_marker_stat.stat.isreg | default(false)
+          - dovecot_direct_rollback_marker_stat.stat.uid | default(-1) == 0
+          - dovecot_direct_rollback_marker_stat.stat.gid | default(-1) == 0
+          - dovecot_direct_rollback_marker_stat.stat.mode | default('') == '0600'
+          - dovecot_direct_rollback_marker_stat.stat.checksum == dovecot_managed_config_checksum
+          - dovecot_direct_rollback_live_marker_stat.stat.isreg | default(false)
+          - dovecot_direct_rollback_live_marker_stat.stat.uid | default(-1) == 0
+          - dovecot_direct_rollback_live_marker_stat.stat.gid | default(-1) == 0
+          - dovecot_direct_rollback_live_marker_stat.stat.mode | default('') == '0600'
+          - (dovecot_direct_rollback_marker_content.content | b64decode) == dovecot_idarsi_marker_content
+        fail_msg: "Refusing direct Dovecot rollback because ownership changed"
+      when: dovecot_idarsi_conf_installed is defined
+      no_log: true
+
+    - name: "Checking the Dovecot rollback snapshot immediately before restore"
+      ansible.builtin.stat:
+        path: "{{ dovecot_direct_snapshot_path }}"
+        follow: false
+        checksum_algorithm: "sha256"
+      loop:
+        - "{{ dovecot_previous_config_path }}"
+        - "{{ dovecot_previous_config_marker_path }}"
+      loop_control:
+        loop_var: dovecot_direct_snapshot_path
+      register: dovecot_direct_snapshot_before_restore
+      when: dovecot_idarsi_conf_installed is defined
+      no_log: true
+
+    - name: "Validating the Dovecot rollback snapshot immediately before restore"
+      ansible.builtin.assert:
+        that:
+          - dovecot_direct_snapshot_before_restore.results[0].stat.isreg
+          - dovecot_direct_snapshot_before_restore.results[0].stat.uid == dovecot_previous_config_uid | int
+          - dovecot_direct_snapshot_before_restore.results[0].stat.gid == dovecot_previous_config_gid | int
+          - dovecot_direct_snapshot_before_restore.results[0].stat.mode == dovecot_previous_config_mode
+          - dovecot_direct_snapshot_before_restore.results[0].stat.checksum == dovecot_previous_config_checksum
+          - dovecot_direct_snapshot_before_restore.results[1].stat.isreg
+          - dovecot_direct_snapshot_before_restore.results[1].stat.uid == 0
+          - dovecot_direct_snapshot_before_restore.results[1].stat.gid == 0
+          - dovecot_direct_snapshot_before_restore.results[1].stat.mode == '0600'
+          - dovecot_direct_snapshot_before_restore.results[1].stat.checksum == dovecot_previous_marker_checksum
+        fail_msg: "Refusing direct Dovecot rollback because the snapshot changed"
+      when: dovecot_idarsi_conf_installed is defined
+      no_log: true
+
+    - name: "Restoring the prior Dovecot configuration after transaction failure"
+      ansible.builtin.copy:
+        src: "{{ dovecot_previous_config_path }}"
+        dest: "{{ dovecot_idarsi_conf_path }}"
+        remote_src: true
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      diff: false
+      when: dovecot_previous_config_existed | default(false) | bool
+      no_log: true
+
+    - name: "Removing the failed Dovecot configuration after transaction failure"
+      ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+      vars:
+        dovecot_configuration_cleanup_records:
+          - artifact: "{{ dovecot_idarsi_conf_path }}"
+            marker: "{{ dovecot_configuration_marker_path }}"
+      when: not (dovecot_previous_config_existed | default(false) | bool)
+
+    - name: "Restoring the prior Dovecot ownership marker"
+      ansible.builtin.copy:
+        content: "{{ dovecot_previous_marker_content | b64decode }}"
+        dest: "{{ dovecot_configuration_marker_path }}"
+        owner: "{{ dovecot_previous_marker_uid }}"
+        group: "{{ dovecot_previous_marker_gid }}"
+        mode: "{{ dovecot_previous_marker_mode }}"
+      diff: false
+      when: dovecot_previous_marker_existed | default(false) | bool
+      no_log: true
+
+    # The paired cleanup above removes the marker and configuration only after
+    # re-stat/hash ownership checks; never remove either path directly.
+
+    - name: "Removing the failed pre-run snapshot with its ownership guard"
+      ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+      vars:
+        dovecot_configuration_cleanup_records:
+          - artifact: "{{ dovecot_previous_config_path }}"
+            marker: "{{ dovecot_previous_config_marker_path }}"
+            allow_orphan_artifact: true
+      when: dovecot_pre_run_snapshot_created | default(false) | bool
+      no_log: true
+
+    - name: "Failing closed after Dovecot configuration validation failure"
+      ansible.builtin.fail:
+        msg: "Dovecot effective configuration validation failed; the live configuration was not replaced"
+  always:
+    - name: "Removing transactional Dovecot candidate with its exact marker guard"
+      ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+      vars:
+        dovecot_configuration_cleanup_records:
+          - artifact: "{{ dovecot_idarsi_conf_path }}.candidate"
+            marker: "{{ dovecot_idarsi_conf_path }}.candidate{{ dovecot_idarsi_marker_suffix }}"
+      when: not ansible_check_mode
+    - name: "Removing the ephemeral Dovecot validation tree"
+      ansible.builtin.file:
+        path: "{{ dovecot_validation_directory.path | default('') }}"
+        state: "absent"
+      no_log: true
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - dovecot_validation_directory.path is defined
+        - dovecot_validation_directory.path | length > 0
 
 - name: "Writing log"
   ansible.builtin.include_tasks: log_write.yml

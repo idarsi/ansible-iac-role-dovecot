@@ -9,18 +9,46 @@
         configuration:
           ssl: "no"
         cron:
-          - name: "global-absent-remove"
+          - name: "global-absent-managed"
             cron_file: "dovecot_global_absent"
   pre_tasks:
+    - name: "Ensuring Dovecot configuration directory exists for fixtures"
+      ansible.builtin.file:
+        path: "/etc/dovecot/conf.d"
+        state: "directory"
+        mode: "0755"
+      tags:
+        - molecule-idempotence-notest
+    - name: "Installing the crontab prerequisite for the pinned shared task"
+      ansible.builtin.package:
+        name: "cronie"
+        state: "present"
+      tags:
+        - molecule-idempotence-notest
+    - name: "Ensuring cron fixture directory exists"
+      ansible.builtin.file:
+        path: "/etc/cron.d"
+        state: "directory"
+        mode: "0755"
+      tags:
+        - molecule-idempotence-notest
     - name: "Creating unmarked global-absent cron fixture"
       ansible.builtin.copy:
         dest: "/etc/cron.d/dovecot_global_absent"
-        content: "#Ansible: global-absent-remove\n0 0 * * * root /bin/true\n#Ansible: global-retained\n0 1 * * * root /bin/true\n"
+        content: |
+          #Ansible: global-absent-managed
+          0 0 * * * root /bin/true
+          #Ansible: global-absent-remove
+          0 1 * * * root /bin/true
+          #Ansible: global-retained
+          0 2 * * * root /bin/true
         mode: "0644"
       tags:
         - molecule-idempotence-notest
-  roles:
-    - role: ansible-iac-role-dovecot
+  tasks:
+    - name: "Running the Dovecot role"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
   post_tasks:
     - name: "Reading global-absent cron fixture"
       ansible.builtin.slurp:
@@ -29,9 +57,9 @@
     - name: "Asserting global absent preserved unrelated entry"
       ansible.builtin.assert:
         that:
-          - dovecot_global_absent_content.content | b64decode is not search('global-absent-remove')
-          - dovecot_global_absent_content.content | b64decode is search('global-retained')
-
+          - dovecot_global_absent_content.content | b64decode is not search('global-absent-managed')
+          - "'global-absent-remove' in (dovecot_global_absent_content.content | b64decode)"
+          - "'global-retained' in (dovecot_global_absent_content.content | b64decode)"
 - name: "Global uninstall removes only the declared cron entry"
   hosts: all
   become: false
@@ -42,18 +70,33 @@
         configuration:
           ssl: "no"
         cron:
-          - name: "global-uninstall-remove"
+          - name: "global-uninstall-managed"
             cron_file: "dovecot_global_uninstall"
   pre_tasks:
+    - name: "Ensuring cron fixture directory exists"
+      ansible.builtin.file:
+        path: "/etc/cron.d"
+        state: "directory"
+        mode: "0755"
+      tags:
+        - molecule-idempotence-notest
     - name: "Creating unmarked global-uninstall cron fixture"
       ansible.builtin.copy:
         dest: "/etc/cron.d/dovecot_global_uninstall"
-        content: "#Ansible: global-uninstall-remove\n0 0 * * * root /bin/true\n#Ansible: global-retained-uninstall\n0 1 * * * root /bin/true\n"
+        content: |
+          #Ansible: global-uninstall-managed
+          0 0 * * * root /bin/true
+          #Ansible: global-uninstall-remove
+          0 1 * * * root /bin/true
+          #Ansible: global-retained-uninstall
+          0 2 * * * root /bin/true
         mode: "0644"
       tags:
         - molecule-idempotence-notest
-  roles:
-    - role: ansible-iac-role-dovecot
+  tasks:
+    - name: "Running the Dovecot role"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
   post_tasks:
     - name: "Reading global-uninstall cron fixture"
       ansible.builtin.slurp:
@@ -62,5 +105,136 @@
     - name: "Asserting global uninstall preserved unrelated entry"
       ansible.builtin.assert:
         that:
-          - dovecot_global_uninstall_content.content | b64decode is not search('global-uninstall-remove')
-          - dovecot_global_uninstall_content.content | b64decode is search('global-retained-uninstall')
+          - dovecot_global_uninstall_content.content | b64decode is not search('global-uninstall-managed')
+          - "'global-uninstall-remove' in (dovecot_global_uninstall_content.content | b64decode)"
+          - "'global-retained-uninstall' in (dovecot_global_uninstall_content.content | b64decode)"
+- name: "Repeated role invocation does not reuse global absent cron records"
+  hosts: all
+  become: false
+  vars:
+    state: "absent"
+    dovecot_repeated_absent_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "repeated-absent-first"
+            cron_file: "dovecot_repeated_absent_first"
+    dovecot_second_absent_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+        cron:
+          - name: "repeated-absent-second"
+            cron_file: "dovecot_repeated_absent_second"
+  pre_tasks:
+    - name: "Creating repeated invocation cron fixtures"
+      ansible.builtin.copy:
+        dest: "{{ item.path }}"
+        content: "#Ansible: {{ item.name }}\n0 0 * * * root /bin/true\n#Ansible: retained\n0 1 * * * root /bin/true\n"
+        mode: "0644"
+      loop:
+        - path: "/etc/cron.d/dovecot_repeated_absent_first"
+          name: "repeated-absent-first"
+        - path: "/etc/cron.d/dovecot_repeated_absent_second"
+          name: "repeated-absent-second"
+      tags:
+        - "molecule-idempotence-notest"
+  tasks:
+    - name: "Running the first repeated absent role invocation"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+      vars:
+        iac_blueprint: "{{ dovecot_repeated_absent_blueprint }}"
+    - name: "Recreating the first cron entry between role invocations"
+      ansible.builtin.lineinfile:
+        path: "/etc/cron.d/dovecot_repeated_absent_first"
+        line: "0 0 * * * root /bin/true"
+        insertbefore: "^#Ansible: retained$"
+      tags:
+        - "molecule-idempotence-notest"
+    - name: "Restoring the first cron entry ownership metadata"
+      ansible.builtin.lineinfile:
+        path: "/etc/cron.d/dovecot_repeated_absent_first"
+        line: "#Ansible: repeated-absent-first"
+        insertbefore: '^0 0 \* \* \* root /bin/true$'
+      tags:
+        - "molecule-idempotence-notest"
+    - name: "Running the second repeated absent role invocation"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+      vars:
+        iac_blueprint: "{{ dovecot_second_absent_blueprint }}"
+    - name: "Reading repeated invocation cron fixtures"
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "/etc/cron.d/dovecot_repeated_absent_first"
+        - "/etc/cron.d/dovecot_repeated_absent_second"
+      register: dovecot_repeated_absent_content
+    - name: "Asserting repeated absent invocation isolation"
+      ansible.builtin.assert:
+        that:
+          - "'repeated-absent-first' in (dovecot_repeated_absent_content.results[0].content | b64decode)"
+          - "'0 0 * * * root /bin/true' in (dovecot_repeated_absent_content.results[0].content | b64decode)"
+          - "'repeated-absent-second' not in (dovecot_repeated_absent_content.results[1].content | b64decode)"
+          - "'retained' in (dovecot_repeated_absent_content.results[1].content | b64decode)"
+  tags:
+    - "molecule-idempotence-notest"
+- name: "Managed configuration absent removes all owned transaction artifacts"
+  hosts: all
+  become: false
+  vars:
+    state: "absent"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  pre_tasks:
+    - name: "Creating owned configuration transaction fixtures"
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: "owned transaction fixture\n"
+        owner: root
+        group: root
+        mode: "0600"
+      loop:
+        - "/etc/dovecot/conf.d/99-idarsi.conf"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+      tags:
+        - molecule-idempotence-notest
+    - name: "Creating exact ownership markers for transaction fixtures"
+      ansible.builtin.copy:
+        dest: "{{ item }}{{ '.idarsi-managed' }}"
+        content: "idarsi-managed-dovecot\n"
+        owner: root
+        group: root
+        mode: "0600"
+      loop:
+        - "/etc/dovecot/conf.d/99-idarsi.conf"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+      tags:
+        - molecule-idempotence-notest
+  roles:
+    - role: ansible-iac-role-dovecot
+  post_tasks:
+    - name: "Checking owned configuration transaction fixtures were removed"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "/etc/dovecot/conf.d/99-idarsi.conf"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.candidate.idarsi-managed"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+      register: dovecot_owned_transaction_artifacts
+    - name: "Asserting owned configuration transaction fixtures were removed"
+      ansible.builtin.assert:
+        that:
+          - >-
+            dovecot_owned_transaction_artifacts.results | map(attribute='stat.exists') | list ==
+            [false, false, false, false, false, false]

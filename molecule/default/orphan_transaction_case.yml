@@ -1,0 +1,64 @@
+---
+- name: "Resetting the orphan transaction fixture paths"
+  ansible.builtin.file:  # noqa syntax-check[specific]
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ dovecot_orphan_artifact }}"
+    - "{{ dovecot_orphan_marker }}"
+
+- name: "Creating orphan transaction artifact"
+  ansible.builtin.copy:  # noqa syntax-check[specific]
+    dest: "{{ dovecot_orphan_artifact }}"
+    content: "orphan transaction content\n"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  when: dovecot_orphan_artifact_present | bool
+
+- name: "Creating orphan transaction marker"
+  ansible.builtin.copy:
+    dest: "{{ dovecot_orphan_marker }}"
+    content: "idarsi-managed-dovecot\n"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  when: dovecot_orphan_marker_present | bool
+
+- name: "Rejecting orphan transaction state"
+  block:
+    - name: "Running Dovecot convergence with orphan transaction state"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "configuration_present"
+        iac_blueprint:
+          dovecot:
+            configuration:
+              ssl: "no"
+    - name: "Failing if orphan transaction state was accepted"
+      ansible.builtin.fail:
+        msg: "Orphan transaction state was accepted"
+  rescue:
+    - name: "Checking orphan transaction state was preserved"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ dovecot_orphan_artifact }}"
+        - "{{ dovecot_orphan_marker }}"
+      register: dovecot_orphan_after
+    - name: "Asserting fail-closed orphan transaction preservation"
+      ansible.builtin.assert:
+        that:
+          - dovecot_orphan_after.results[0].stat.exists == (dovecot_orphan_artifact_present | bool)
+          - dovecot_orphan_after.results[1].stat.exists == (dovecot_orphan_marker_present | bool)
+        fail_msg: "Orphan transaction state was changed after rejection"
+
+- name: "Cleaning orphan transaction fixture"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: "absent"
+  loop:
+    - "{{ dovecot_orphan_artifact }}"
+    - "{{ dovecot_orphan_marker }}"

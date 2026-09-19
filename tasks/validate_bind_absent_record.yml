@@ -7,7 +7,8 @@
       - "-M"
       - "{{ dovecot_bind_absent_record.target }}"
       - "-o"
-      - "SOURCE"
+      - "SOURCE,TARGET,FSTYPE,OPTIONS"
+      - "-J"
   register: dovecot_bind_absent_mount
   changed_when: false
   failed_when: false
@@ -16,6 +17,24 @@
   ansible.builtin.assert:
     that: dovecot_bind_absent_mount.rc in [0, 1]
     fail_msg: "Unable to safely inspect bind mount {{ dovecot_bind_absent_record.target }}"
+
+- name: "Parsing structured bind mount probe"
+  ansible.builtin.set_fact:
+    dovecot_bind_absent_mount_data: "{{ dovecot_bind_absent_mount.stdout | from_json }}"
+  when: dovecot_bind_absent_mount.rc == 0
+
+- name: "Checking structured bind mount ownership"
+  ansible.builtin.assert:
+    that:
+      - dovecot_bind_absent_mount_data.filesystems | default([]) | length == 1
+      - dovecot_bind_absent_mount_data.filesystems[0].source == dovecot_bind_absent_record.source
+      - dovecot_bind_absent_mount_data.filesystems[0].target == dovecot_bind_absent_record.target
+      - >-
+        dovecot_bind_absent_mount_data.filesystems[0].fstype == 'none' or
+        'bind' in (dovecot_bind_absent_mount_data.filesystems[0].options |
+        default('')).split(',')
+    fail_msg: "Refusing bind removal because findmnt did not report the declared bind source, target, and type"
+  when: dovecot_bind_absent_mount.rc == 0
 
 - name: "Resetting fstab entries for declared bind target"
   ansible.builtin.set_fact:
@@ -34,7 +53,6 @@
 - name: "Guarding declared bind removal scope"
   ansible.builtin.assert:
     that:
-      - dovecot_bind_absent_mount.rc != 0 or (dovecot_bind_absent_mount.stdout | trim) == dovecot_bind_absent_record.source
       - >-
         dovecot_bind_absent_fstab_matches | length <= 1
       - >-

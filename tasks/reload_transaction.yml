@@ -1,0 +1,36 @@
+---
+- name: "Checking test-only Dovecot reload counter"
+  ansible.builtin.stat:
+    path: "{{ dovecot_test_reload_counter_path }}"
+    follow: false
+  register: dovecot_test_reload_counter_stat
+  when: dovecot_test_reload_counter_path is defined
+
+- name: "Rejecting an unsafe test-only Dovecot reload counter"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_test_reload_counter_stat.stat.exists or dovecot_test_reload_counter_stat.stat.isreg
+    fail_msg: "The test-only Dovecot reload counter must be a regular file or absent"
+  when: dovecot_test_reload_counter_path is defined
+
+- name: "Reading test-only Dovecot reload counter"
+  ansible.builtin.slurp:
+    src: "{{ dovecot_test_reload_counter_path }}"
+  register: dovecot_test_reload_counter_content
+  when:
+    - dovecot_test_reload_counter_path is defined
+    - dovecot_test_reload_counter_stat.stat.isreg | default(false)
+
+- name: "Incrementing test-only Dovecot reload counter"
+  ansible.builtin.copy:
+    content: >-
+      {{ (dovecot_test_reload_counter_content.content | default('MA==') | b64decode | int) + 1 }}
+    dest: "{{ dovecot_test_reload_counter_path }}"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  no_log: true
+  when: dovecot_test_reload_counter_path is defined
+
+- name: "Running transactional Dovecot reload"
+  ansible.builtin.include_tasks: reload_transaction_operation.yml

@@ -60,6 +60,186 @@
     iac_cron: "{{ iac_blueprint.dovecot.cron | default([]) }}"
     iac_git_repos: "{{ iac_blueprint.dovecot.git | default([]) }}"
 
+- name: "Collecting service facts for safe reload notifications"
+  ansible.builtin.service_facts:
+  when: state != 'validate'
+
+- name: "Checking for the managed configuration before resource changes"
+  ansible.builtin.stat:
+    path: "{{ dovecot_idarsi_conf_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_prechange_config_stat
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Resetting the per-invocation Dovecot transaction context"
+  ansible.builtin.set_fact:
+    dovecot_configuration_transaction_handled: false
+    dovecot_configuration_transaction_committed: false
+    dovecot_pre_run_transaction_active: false
+    dovecot_pre_run_snapshot_used: false
+    dovecot_pre_run_snapshot_created: false
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Checking transactional candidate and rollback paths without following links"
+  ansible.builtin.stat:
+    path: "{{ dovecot_transaction_path }}"
+    follow: false
+  loop:
+    - "{{ dovecot_idarsi_conf_path }}.candidate"
+    - "{{ dovecot_idarsi_conf_path }}.previous"
+    - "{{ dovecot_idarsi_conf_path }}.candidate{{ dovecot_idarsi_marker_suffix }}"
+    - "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"
+  loop_control:
+    loop_var: dovecot_transaction_path
+  register: dovecot_transaction_path_stats
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Rejecting managed configuration and transaction symlinks"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_prechange_config_stat.stat.islnk | default(false)
+      - not (dovecot_transaction_path_stats.results |
+        selectattr('stat.islnk', 'defined') | selectattr('stat.islnk', 'equalto', true) |
+        list | length > 0)
+    fail_msg: "Dovecot managed configuration and transaction paths must be regular files or absent"
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Checking for the prior Dovecot ownership marker without following links"
+  ansible.builtin.stat:
+    path: "{{ dovecot_idarsi_conf_path }}{{ dovecot_idarsi_marker_suffix }}"
+    follow: false
+  register: dovecot_prechange_marker_stat
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Reading the prior Dovecot ownership marker"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_idarsi_conf_path }}{{ dovecot_idarsi_marker_suffix }}"
+  register: dovecot_prechange_marker_content
+  when:
+    - state in ['install', 'present', 'configuration_present']
+    - dovecot_prechange_marker_stat.stat.isreg | default(false)
+
+- name: "Refusing an unsafe existing Dovecot ownership marker"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_prechange_marker_stat.stat.exists | default(false) or
+        (dovecot_prechange_marker_stat.stat.isreg | default(false) and
+         dovecot_prechange_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_prechange_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_prechange_marker_stat.stat.mode | default('') == '0600' and
+         (dovecot_prechange_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+    fail_msg: "Refusing to replace an unsafe Dovecot ownership marker"
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Refusing an orphaned managed Dovecot configuration or marker"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (not dovecot_prechange_config_stat.stat.exists | default(false) and
+         not dovecot_prechange_marker_stat.stat.exists | default(false)) or
+        (dovecot_prechange_config_stat.stat.isreg | default(false) and
+         dovecot_prechange_marker_stat.stat.isreg | default(false))
+    fail_msg: "Refusing orphaned managed Dovecot configuration state; operator cleanup is required"
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Checking for an existing Dovecot pre-run snapshot"
+  ansible.builtin.stat:
+    path: "{{ dovecot_idarsi_conf_path }}.previous"
+    follow: false
+  register: dovecot_prechange_previous_stat
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Checking for the pre-run snapshot ownership marker"
+  ansible.builtin.stat:
+    path: "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"
+    follow: false
+  register: dovecot_prechange_previous_marker_stat
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Reading the pre-run snapshot ownership marker"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"
+  register: dovecot_prechange_previous_marker_content
+  when:
+    - state in ['install', 'present', 'configuration_present']
+    - dovecot_prechange_previous_marker_stat.stat.isreg | default(false)
+
+- name: "Refusing an incomplete or mismatched Dovecot pre-run snapshot"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (not dovecot_prechange_previous_stat.stat.exists | default(false) and
+         not dovecot_prechange_previous_marker_stat.stat.exists | default(false)) or
+        (dovecot_prechange_previous_stat.stat.isreg | default(false) and
+         dovecot_prechange_previous_stat.stat.uid | default(-1) == 0 and
+         dovecot_prechange_previous_stat.stat.gid | default(-1) == 0 and
+         dovecot_prechange_previous_stat.stat.mode | default('') == '0600' and
+         dovecot_prechange_previous_marker_stat.stat.isreg | default(false) and
+         dovecot_prechange_previous_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_prechange_previous_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_prechange_previous_marker_stat.stat.mode | default('') == '0600' and
+         (dovecot_prechange_previous_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+    fail_msg: "Refusing an incomplete or mismatched Dovecot pre-run snapshot; operator cleanup is required"
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Recording the immutable pre-run configuration snapshot paths"
+  ansible.builtin.set_fact:
+    dovecot_previous_config_path: "{{ dovecot_idarsi_conf_path }}.previous"
+    dovecot_previous_config_marker_path: "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"
+    dovecot_configuration_marker_path: "{{ dovecot_idarsi_conf_path }}{{ dovecot_idarsi_marker_suffix }}"
+    dovecot_candidate_config_marker_path: >-
+      {{ dovecot_idarsi_conf_path }}.candidate{{ dovecot_idarsi_marker_suffix }}
+    dovecot_previous_marker_existed: >-
+      {{ dovecot_prechange_marker_stat.stat.exists | default(false) }}
+    dovecot_previous_marker_content: >-
+      {{ dovecot_prechange_marker_content.content | default('') }}
+    dovecot_previous_marker_uid: >-
+      {{ dovecot_prechange_marker_stat.stat.uid | default(0) }}
+    dovecot_previous_marker_gid: >-
+      {{ dovecot_prechange_marker_stat.stat.gid | default(0) }}
+    dovecot_previous_marker_mode: >-
+      {{ dovecot_prechange_marker_stat.stat.mode | default('0600') }}
+    dovecot_pre_run_snapshot_used: >-
+      {{ dovecot_prechange_previous_stat.stat.isreg | default(false) and
+         dovecot_prechange_previous_marker_stat.stat.isreg | default(false) }}
+  when: state in ['install', 'present', 'configuration_present']
+
+- name: "Creating the immutable pre-run Dovecot snapshot"
+  when:
+    - state in ['install', 'present', 'configuration_present']
+    - dovecot_prechange_config_stat.stat.exists | default(false)
+    - not dovecot_prechange_previous_stat.stat.exists | default(false)
+  block:
+    - name: "Capturing the pre-run managed Dovecot configuration"
+      ansible.builtin.copy:
+        src: "{{ dovecot_idarsi_conf_path }}"
+        dest: "{{ dovecot_idarsi_conf_path }}.previous"
+        remote_src: true
+        owner: "root"
+        group: "root"
+        mode: "0600"
+        force: false
+      diff: false
+      no_log: true
+      changed_when: false
+    - name: "Marking the immutable pre-run Dovecot snapshot"
+      ansible.builtin.copy:
+        content: "{{ dovecot_idarsi_marker_content }}"
+        dest: "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+        force: false
+      diff: false
+      no_log: true
+      changed_when: false
+    - name: "Recording the pre-run Dovecot snapshot transaction context"
+      ansible.builtin.set_fact:
+        dovecot_pre_run_transaction_active: true
+        dovecot_pre_run_snapshot_used: true
+        dovecot_pre_run_snapshot_created: true
+
 - name: "Checking whether proxy use is bypassed"
   ansible.builtin.set_fact:
     dovecot_proxy_bypassed: false
@@ -112,39 +292,43 @@
 # CHECKING STATES
 ###############################################################################
 
-- name: "STATE: Validate Dovecot inventory only"
-  ansible.builtin.debug:
-    msg: "Dovecot blueprint validation succeeded"
-  when: state == 'validate'
+- name: "Converging Dovecot state with failed-run snapshot recovery"
+  block:
+    - name: "Dispatching the requested Dovecot state"
+      ansible.builtin.include_tasks: state_dispatch.yml
+  rescue:
+    - name: "Removing the exact owned pre-run snapshot after failed convergence"
+      ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+      vars:
+        dovecot_configuration_cleanup_records:
+          - artifact: "{{ dovecot_previous_config_path | default('') }}"
+            marker: "{{ dovecot_previous_config_marker_path | default('') }}"
+      when:
+        - not ansible_check_mode
+        - dovecot_pre_run_transaction_active | default(false) | bool
+        - dovecot_previous_config_path is defined
+        - dovecot_previous_config_marker_path is defined
+    - name: "Re-raising the failed Dovecot convergence"
+      ansible.builtin.fail:
+        msg: "Dovecot convergence failed; owned pre-run snapshot recovery was attempted"
 
-- name: "STATE: Ensure Dovecot installation and configuration is present"
-  ansible.builtin.include_tasks: install.yml
-  when: state == 'install'
+###############################################################################
+# COMMIT ONE RELOAD TRANSACTION AFTER ALL RESOURCE CONVERGENCE
+###############################################################################
 
-- name: "STATE: Ensure Dovecot installation and configuration is absent"
-  ansible.builtin.include_tasks: uninstall.yml
-  when: state == 'uninstall'
+- name: "Refreshing service facts before deciding whether reload is required"
+  ansible.builtin.service_facts:
+  when: state in ['install', 'present', 'configuration_present']
 
-- name: "STATE: Ensure Dovecot installation is present"
-  ansible.builtin.include_tasks: present.yml
-  when: state == 'present'
+- name: "Flushing the Dovecot configuration and resource transaction"
+  ansible.builtin.meta: flush_handlers
+  when: state in ['install', 'present', 'configuration_present']
 
-- name: "STATE: Ensure Dovecot installation is absent"
-  ansible.builtin.include_tasks: absent.yml
-  when: state == 'absent'
-
-- name: "STATE: Ensure Dovecot configuration is present"
-  ansible.builtin.include_tasks: configuration_present.yml
-  when: state == 'configuration_present'
-
-- name: "STATE: Ensure Dovecot is started"
-  ansible.builtin.include_tasks: started.yml
-  when: state == 'started'
-
-- name: "STATE: Ensure Dovecot is stopped"
-  ansible.builtin.include_tasks: stopped.yml
-  when: state == 'stopped'
-
-- name: "STATE: Ensure Dovecot is restarted"
-  ansible.builtin.include_tasks: restarted.yml
-  when: state == 'restarted'
+- name: "Removing an unused pre-run Dovecot snapshot"
+  ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+  vars:
+    dovecot_configuration_cleanup_records:
+      - artifact: "{{ dovecot_previous_config_path | default('') }}"
+        marker: "{{ dovecot_previous_config_marker_path | default('') }}"
+  when:
+    - state in ['install', 'present', 'configuration_present']

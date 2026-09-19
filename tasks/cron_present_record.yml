@@ -2,21 +2,31 @@
 - name: "Checking cron file before management"
   ansible.builtin.stat:
     path: "/etc/cron.d/{{ dovecot_cron_present_record.cron_file }}"
+    follow: false
   register: dovecot_cron_file_before
 
 - name: "Checking existing cron ownership marker"
   ansible.builtin.stat:
     path: "/etc/cron.d/.{{ dovecot_cron_present_record.cron_file }}.idarsi-managed"
+    follow: false
   register: dovecot_cron_marker_before
+
+- name: "Rejecting symlinked cron paths before management"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_cron_file_before.stat.islnk | default(false)
+      - not dovecot_cron_marker_before.stat.islnk | default(false)
+    fail_msg: "Refusing to manage symlinked cron file or ownership marker {{ dovecot_cron_present_record.cron_file }}"
 
 - name: "Reading existing cron ownership marker"
   ansible.builtin.slurp:
     src: "/etc/cron.d/.{{ dovecot_cron_present_record.cron_file }}.idarsi-managed"
   register: dovecot_cron_marker_before_content
-  when: dovecot_cron_marker_before.stat.exists
+  when: dovecot_cron_marker_before.stat.isreg | default(false)
+  no_log: true
 
 - name: "Parsing existing cron ownership marker"
-  when: dovecot_cron_marker_before.stat.exists
+  when: dovecot_cron_marker_before.stat.isreg | default(false)
   block:
     - name: "Loading existing cron ownership manifest"
       ansible.builtin.set_fact:
@@ -51,7 +61,7 @@
       - dovecot_cron_marker_data.mode is string
       - dovecot_cron_marker_data.path == '/etc/cron.d/' ~ dovecot_cron_present_record.cron_file
     fail_msg: "Refusing to manage cron file with an invalid ownership marker {{ dovecot_cron_present_record.cron_file }}"
-  when: dovecot_cron_marker_before.stat.exists
+  when: dovecot_cron_marker_before.stat.isreg | default(false)
 
 - name: "Rejecting an ownership marker that does not match the existing cron file"
   ansible.builtin.assert:
@@ -77,6 +87,7 @@
 - name: "Checking cron file after management"
   ansible.builtin.stat:
     path: "/etc/cron.d/{{ dovecot_cron_present_record.cron_file }}"
+    follow: false
   register: dovecot_cron_file_after
 
 - name: "Creating or refreshing role-owned cron manifest"

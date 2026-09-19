@@ -4,7 +4,6 @@
   become: false
   vars:
     dovecot_molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
-    dovecot_validation_token_path: "{{ dovecot_molecule_ephemeral_directory }}/dovecot-validation-token"
   tasks:
     - name: "Require Molecule ephemeral directory for validation artifacts"
       ansible.builtin.assert:
@@ -13,22 +12,26 @@
         fail_msg: >-
           MOLECULE_EPHEMERAL_DIRECTORY must be set to a non-empty directory;
           refusing to use a shared fallback for validation artifacts
-    - name: "Checking current-run validation token"
-      ansible.builtin.stat:
-        path: "{{ dovecot_validation_token_path }}"
+    - name: "Finding the current-run validation token"
+      ansible.builtin.find:
+        paths: "{{ dovecot_molecule_ephemeral_directory }}"
+        patterns: "dovecot-validation-token-*"
+        file_type: "file"
+        follow: false
       delegate_to: "localhost"
-      register: dovecot_validation_token_stat
+      register: dovecot_validation_token_files
       run_once: true  # noqa run-once[task]
     - name: "Reading current-run validation token"
       ansible.builtin.slurp:
-        path: "{{ dovecot_validation_token_path }}"
+        path: "{{ dovecot_validation_token_files.files[0].path }}"
       delegate_to: "localhost"
       register: dovecot_validation_token_content
       run_once: true  # noqa run-once[task]
-      when: dovecot_validation_token_stat.stat.exists
+      when: dovecot_validation_token_files.matched == 1
     - name: "Checking persisted validation snapshot freshness"
       ansible.builtin.stat:
         path: "/tmp/dovecot-validation-snapshot.json"
+        follow: false
       register: dovecot_validation_snapshot_stat
     - name: "Reading persisted validation snapshot"
       ansible.builtin.slurp:
@@ -44,6 +47,9 @@
             (((ansible_date_time.epoch | int) -
             (dovecot_validation_snapshot_stat.stat.mtime | int)) | abs) <= 3600
           - dovecot_validation_snapshot_content.content is defined
+          - dovecot_validation_snapshot_stat.stat.isreg
+          - dovecot_validation_snapshot_stat.stat.mode == '0600'
+          - dovecot_validation_snapshot_stat.stat.uid == 0
         fail_msg: "Validation snapshot is missing, unreadable, or stale"
     - name: "Loading persisted validation snapshot"
       ansible.builtin.set_fact:
@@ -69,7 +75,7 @@
     - name: "Asserting validation snapshot has a fresh converge marker"
       ansible.builtin.assert:
         that:
-          - dovecot_validation_token_stat.stat.exists
+          - dovecot_validation_token_files.matched == 1
           - dovecot_validation_snapshot_stat.stat.exists
           - dovecot_validation_snapshot is mapping
           - >-
@@ -77,7 +83,7 @@
             'fixture_snapshots', 'config_exists', 'config_content',
             'converge_marker'] | difference(dovecot_validation_snapshot.keys()) | length) == 0
           - dovecot_validation_converge_marker is string
-          - dovecot_validation_converge_marker is match('^[0-9]+$')
+          - dovecot_validation_converge_marker is match('^[A-Za-z0-9_-]+$')
           - >-
             dovecot_validation_converge_marker ==
             (dovecot_validation_token_content.content | b64decode | trim)

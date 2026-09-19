@@ -36,6 +36,17 @@
       - (iac_blueprint.dovecot.git | default([])) is not string
     fail_msg: "Dovecot resource sections must be lists and configuration must be a mapping"
 
+- name: "Rejecting newline injection in managed Dovecot values"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_configuration.protocols | default(dovecot_default_protocols) | map('string') | select('search', '[\r\n]') | list | length) == 0
+      - (dovecot_configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms) | map('string') | select('search', '[\r\n]') | list | length) == 0
+      - (dovecot_configuration.mail_location | default(dovecot_default_mail_location) | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl | default(dovecot_default_ssl) | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl_cert | default('') | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl_key | default('') | string) is not search('[\r\n]')
+    fail_msg: "Dovecot configuration values must not contain carriage returns or newlines"
+
 - name: "Validating Dovecot configuration values"
   ansible.builtin.assert:
     that:
@@ -94,7 +105,33 @@
   ansible.builtin.assert:
     that:
       - (dovecot_configuration.extra_parameters | default({})) is mapping
-    fail_msg: "Dovecot extra_parameters must be a mapping"
+      - >-
+        (dovecot_configuration.extra_parameters | default({})).keys() |
+        select('match', '^[A-Za-z][A-Za-z0-9_]*$') | list | length ==
+        (dovecot_configuration.extra_parameters | default({}) | length)
+      - >-
+        (dovecot_configuration.extra_parameters | default({})).keys() |
+        difference([
+        'protocols', 'mail_location', 'auth_mechanisms',
+        'disable_plaintext_auth', 'auth_allow_cleartext', 'ssl',
+        'ssl_cert', 'ssl_key']) | length ==
+        (dovecot_configuration.extra_parameters | default({}) | length)
+      - >-
+        (dovecot_configuration.extra_parameters | default({}) | dict2items |
+        map(attribute='value') | map('string') | select('search', '[\r\n]') |
+        list | length) == 0
+    fail_msg: "Dovecot extra_parameters must be a mapping with valid, non-protected keys and single-line values"
+
+- name: "Rejecting newline injection in managed Dovecot values"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_configuration.protocols | default(dovecot_default_protocols) | map('string') | select('search', '[\r\n]') | list | length) == 0
+      - (dovecot_configuration.auth_mechanisms | default(dovecot_default_auth_mechanisms) | map('string') | select('search', '[\r\n]') | list | length) == 0
+      - (dovecot_configuration.mail_location | default(dovecot_default_mail_location) | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl | default(dovecot_default_ssl) | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl_cert | default('') | string) is not search('[\r\n]')
+      - (dovecot_configuration.ssl_key | default('') | string) is not search('[\r\n]')
+    fail_msg: "Dovecot configuration values must not contain carriage returns or newlines"
 
 - name: "Validating managed Dovecot configuration path"
   ansible.builtin.assert:
@@ -252,6 +289,20 @@
   loop_control:
     loop_var: dovecot_file_record
     label: "{{ dovecot_file_record.path | default('invalid') }}"
+
+- name: "Rejecting newline injection in cron jobs"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (dovecot_injection_record.job | default('') | string) is not
+        search('[\r\n]')
+    fail_msg: "Cron jobs must not contain carriage returns or newlines"
+  loop: >-
+    {{ (iac_blueprint.dovecot.files | default([])) +
+       (iac_blueprint.dovecot.cron | default([])) }}
+  loop_control:
+    loop_var: dovecot_injection_record
+    label: "{{ dovecot_injection_record.path | default(dovecot_injection_record.name | default('invalid')) }}"
 
 - name: "Validating Dovecot bind resource records"
   ansible.builtin.assert:
@@ -431,4 +482,6 @@
        + (iac_blueprint.dovecot.git | default([]) | map(attribute='dest') | list) }}
   loop_control:
     loop_var: dovecot_destructive_path
-  when: state in ['absent', 'uninstall']
+  when: >-
+    state in ['validate', 'install', 'uninstall', 'present', 'absent',
+    'configuration_present', 'started', 'stopped', 'restarted']

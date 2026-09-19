@@ -1,5 +1,22 @@
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
+
+> **Maturity State: Beta**<br>
+> **RC Readiness: 75% (provisional)**
+
+Assessed at the current working-tree ref (`e28bd44` plus uncommitted changes).
+The `tasks/shared` submodule is initialized at the pinned commit `d70d58e`.
+
+The provisional score is based on this scorecard; it is not a claim of
+complete release-candidate evidence:
+
+| Category | Evidence | Status |
+| --- | --- | --- |
+| Contract and validation | Explicit states, blueprint validation, and fail-closed guards | Complete |
+| Convergence and security | Candidate validation, guarded configuration rollback, ownership markers | Partial |
+| Documentation | Supported platforms, states, risks, and test limitations documented | Complete |
+| Automated evidence | Syntax/lint and repository scenarios exist, but the full Molecule matrix is incomplete | Incomplete |
+
 **COPYRIGHT** 2026 ^(ida|arsi)$ collective  
 **LICENSE** MIT License [LICENSE](LICENSE)  
 **AUTHORS**
@@ -34,6 +51,63 @@ Supported target operating systems:
 Supporting host resources are implemented through the shared task library
 included under `tasks/shared`. This keeps common filesystem, bind, cron, Git,
 and task-report behavior consistent with other Engine-managed roles.
+
+Security behavior
+-----------------
+
+The role rejects `extra_parameters` that overlap security-managed settings and
+rejects newline injection in configuration values. Dovecot configuration is
+rendered as a restrictive candidate, validated against a staged copy of the
+configuration tree, and installed only after validation; validation or
+replacement failures leave the live file untouched. Includes that use absolute
+paths outside the staged tree retain a live-tree dependency. If such a
+dependency is unavailable, validation fails closed and the live file is not
+replaced. Dovecot
+2.4 uses `auth_allow_cleartext = no` when plaintext authentication is disabled.
+Depending on the Rocky package version and included modules, effective
+`doveconf` output may expose only a supported subset of requested protocols or
+authentication mechanisms. The role preserves requested values in its managed
+file and requires effective IMAP, plain authentication, and the configured
+plaintext/TLS security policy.
+Managed changes notify a reload handler when the service is running. At the
+start of a convergence that may reload Dovecot, exactly one immutable pre-run
+configuration snapshot is created when a managed configuration already exists.
+Snapshot and marker creation has guarded cleanup for partial creation. If reload
+fails, the role restores that role-owned snapshot and reloads it before reporting
+failure. Configuration rollback is ownership-checked again immediately before
+overwrite/removal and fails closed if a symlink, marker, checksum, or ownership
+race is detected. The default Molecule scenario exercises the normal rollback
+path; focused local guard tests cover changed-live, changed-snapshot,
+marker-replacement, and cleanup-race protections. They do not simulate a
+concurrent OS-level writer.
+
+This is deliberately **not a full host-resource transaction**. Filesystem, Git,
+cron, bind, and service operations are not rolled back as a group after a later
+resource failure; the role leaves those changes in place and reports the failure.
+This avoids deleting or overwriting pre-existing or unmanaged resources. Operators
+must inspect those resources after a failed `present` run and rerun convergence.
+Cron and destructive cleanup have their own ownership markers and repeated checks;
+bind migration restores the service state, but concurrent mount/fstab changes remain
+a residual risk. The role does not claim atomic rollback across these resources.
+Inventory validation and a temporary configuration render happen before package
+bootstrap. Effective `doveconf` validation cannot run until the Dovecot package
+exists; on a new host, installing that package is the unavoidable bootstrap
+residual. The installed configuration is still rendered and validated before
+it replaces or creates the managed file, and before shared resources converge.
+Candidate, previous, and managed configuration cleanup requires a root-owned
+`0600` role-managed marker; unowned regular files are preserved and cleanup
+fails closed. Resource
+removal is guarded in every state, and bind removal fails closed unless
+structured `findmnt` and `/etc/fstab` ownership checks agree. Migration
+quiesces the service and never lazy-unmounts.
+
+The generated managed configuration and task report use mode `0600`. Arbitrary
+`extra_parameters` values are deliberately not classified as secret or
+non-secret; operators must treat the generated configuration as sensitive.
+Managed filesystem records retain their explicitly requested mode, so callers
+must set a restrictive mode for secret-bearing files (for example `0600`). The
+role cannot safely infer which arbitrary shared-resource files contain private
+keys, so this remains a caller responsibility and residual risk.
 
 These operations are supported:
 
@@ -288,6 +362,11 @@ Repository checkout
 -------------------
 
 The shared task library is included as a Git submodule under `tasks/shared`.
+
+The checked-in submodule is initialized at the pinned commit `d70d58e`.
+Clean checkouts made without submodules need
+`git submodule update --init --recursive`; the role does not silently vendor or
+replace the external dependency.
 Clone the repository with submodules:
 
 ```bash

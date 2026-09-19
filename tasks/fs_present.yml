@@ -1,3 +1,62 @@
 ---
+- name: "Preparing filesystem paths for reload change detection"
+  ansible.builtin.set_fact:
+    dovecot_fs_changed: false
+    dovecot_fs_reload_paths: >-
+      {{ ((iac_fs_directories | map(attribute='path') | list) +
+          (iac_fs_files | map(attribute='path') | list) +
+          ([dovecot_configuration.ssl_cert] if dovecot_configuration.ssl_cert | default('') | length > 0 else []) +
+          ([dovecot_configuration.ssl_key] if dovecot_configuration.ssl_key | default('') | length > 0 else [])) | unique }}
+
+- name: "Snapshotting filesystem resources before convergence"
+  ansible.builtin.stat:
+    path: "{{ dovecot_fs_reload_path }}"
+    checksum_algorithm: "sha256"
+  loop: "{{ dovecot_fs_reload_paths }}"
+  loop_control:
+    loop_var: dovecot_fs_reload_path
+  register: dovecot_fs_before
+
 - name: "Including shared filesystem present tasks"
   ansible.builtin.include_tasks: shared/fs_present.yml
+
+- name: "Snapshotting filesystem resources after convergence"
+  ansible.builtin.stat:
+    path: "{{ dovecot_fs_reload_path }}"
+    checksum_algorithm: "sha256"
+  loop: "{{ dovecot_fs_reload_paths }}"
+  loop_control:
+    loop_var: dovecot_fs_reload_path
+  register: dovecot_fs_after
+
+- name: "Recording actual filesystem resource changes"
+  ansible.builtin.set_fact:
+    dovecot_fs_changed: true
+  loop: "{{ dovecot_fs_reload_paths }}"
+  loop_control:
+    loop_var: dovecot_fs_reload_path
+    index_var: dovecot_fs_reload_index
+  when: >-
+    dovecot_fs_before.results[dovecot_fs_reload_index].stat.exists !=
+    dovecot_fs_after.results[dovecot_fs_reload_index].stat.exists or
+    dovecot_fs_before.results[dovecot_fs_reload_index].stat.mode | default('') !=
+    dovecot_fs_after.results[dovecot_fs_reload_index].stat.mode | default('') or
+    dovecot_fs_before.results[dovecot_fs_reload_index].stat.checksum | default('') !=
+    dovecot_fs_after.results[dovecot_fs_reload_index].stat.checksum | default('')
+
+- name: "Notifying Dovecot only for relevant filesystem changes"
+  ansible.builtin.debug:
+    msg: "A Dovecot configuration or credential file changed"
+  changed_when: true
+  when:
+    - dovecot_fs_changed | default(false)
+    - >-
+      (iac_fs_directories | selectattr('path', 'match', '^/etc/dovecot(?:/|$)') | list | length) > 0
+      or (iac_fs_files | selectattr('path', 'match', '^/etc/dovecot(?:/|$)') | list | length) > 0
+      or (dovecot_configuration.ssl_cert | default('') | length > 0 and
+          iac_fs_files | selectattr('path', 'equalto', dovecot_configuration.ssl_cert) |
+          list | length > 0)
+      or (dovecot_configuration.ssl_key | default('') | length > 0 and
+          iac_fs_files | selectattr('path', 'equalto', dovecot_configuration.ssl_key) |
+          list | length > 0)
+  notify: "dovecot configuration changed"

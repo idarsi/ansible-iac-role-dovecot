@@ -2,21 +2,31 @@
 - name: "Checking ownership marker for absent cron file"
   ansible.builtin.stat:
     path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+    follow: false
   register: dovecot_cron_ownership_marker
 
 - name: "Reading ownership marker for absent cron file"
   ansible.builtin.slurp:
     src: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
   register: dovecot_cron_ownership_marker_content
-  when: dovecot_cron_ownership_marker.stat.exists
+  when: dovecot_cron_ownership_marker.stat.isreg | default(false)
+  no_log: true
 
 - name: "Checking existing cron file immediately before removal"
   ansible.builtin.stat:
     path: "/etc/cron.d/{{ dovecot_cron_absent_record.cron_file }}"
+    follow: false
   register: dovecot_cron_file_before_removal
 
+- name: "Rejecting symlinked cron paths before removal"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_cron_file_before_removal.stat.islnk | default(false)
+      - not dovecot_cron_ownership_marker.stat.islnk | default(false)
+    fail_msg: "Refusing to remove symlinked cron file or ownership marker {{ dovecot_cron_absent_record.cron_file }}"
+
 - name: "Parsing cron ownership manifest"
-  when: dovecot_cron_ownership_marker.stat.exists
+  when: dovecot_cron_ownership_marker.stat.isreg | default(false)
   block:
     - name: "Loading cron ownership manifest"
       ansible.builtin.set_fact:
@@ -80,21 +90,24 @@
 - name: "Finally checking cron file immediately before deletion"
   ansible.builtin.stat:
     path: "/etc/cron.d/{{ dovecot_cron_absent_record.cron_file }}"
+    follow: false
   register: dovecot_cron_file_final
 
 - name: "Finally checking ownership marker immediately before deletion"
   ansible.builtin.stat:
     path: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
+    follow: false
   register: dovecot_cron_marker_final
 
 - name: "Finally reading ownership marker immediately before deletion"
   ansible.builtin.slurp:
     src: "/etc/cron.d/.{{ dovecot_cron_absent_record.cron_file }}.idarsi-managed"
   register: dovecot_cron_marker_final_content
-  when: dovecot_cron_marker_final.stat.exists
+  when: dovecot_cron_marker_final.stat.isreg | default(false)
+  no_log: true
 
 - name: "Parsing final cron ownership manifest"
-  when: dovecot_cron_marker_final.stat.exists
+  when: dovecot_cron_marker_final.stat.isreg | default(false)
   block:
     - name: "Loading final cron ownership manifest"
       ansible.builtin.set_fact:

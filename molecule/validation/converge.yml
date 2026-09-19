@@ -5,7 +5,6 @@
   vars:
     state: "validate"
     dovecot_molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
-    dovecot_validation_token_path: "{{ dovecot_molecule_ephemeral_directory }}/dovecot-validation-token"
     iac_blueprint:
       dovecot:
         configuration:
@@ -22,17 +21,38 @@
         fail_msg: >-
           MOLECULE_EPHEMERAL_DIRECTORY must be set to a non-empty directory;
           refusing to use a shared fallback for validation artifacts
-    - name: "Checking for an existing validation-run token"
+    - name: "Checking validation artifact directory security"
       ansible.builtin.stat:
-        path: "{{ dovecot_validation_token_path }}"
+        path: "{{ dovecot_molecule_ephemeral_directory }}"
+        follow: false
       delegate_to: "localhost"
-      register: dovecot_validation_existing_token
+      register: dovecot_validation_ephemeral_directory_stat
+    - name: "Rejecting an insecure validation artifact directory"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_ephemeral_directory_stat.stat.isdir
+          - dovecot_validation_ephemeral_directory_stat.stat.mode in ['0700', '0750', '0755']
+          - dovecot_validation_ephemeral_directory_stat.stat.uid == (lookup('pipe', 'id -u') | int)
+        fail_msg: "Validation artifact directory must be a real directory owned by the controller user"
+    - name: "Finding the validation-run token in the private Molecule directory"
+      ansible.builtin.find:
+        paths: "{{ dovecot_molecule_ephemeral_directory }}"
+        patterns: "dovecot-validation-token-*"
+        file_type: "file"
+        follow: false
+      delegate_to: "localhost"
+      register: dovecot_validation_existing_tokens
     - name: "Reading an existing validation-run token"
       ansible.builtin.slurp:
-        path: "{{ dovecot_validation_token_path }}"
+        path: "{{ dovecot_validation_existing_tokens.files[0].path }}"
       delegate_to: "localhost"
       register: dovecot_validation_existing_token_content
-      when: dovecot_validation_existing_token.stat.exists
+      when: dovecot_validation_existing_tokens.matched == 1
+    - name: "Reject duplicate validation-run tokens"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_existing_tokens.matched <= 1
+        fail_msg: "Multiple validation tokens exist in the private Molecule directory"
     - name: "Checking for an existing validation snapshot"
       ansible.builtin.stat:
         path: "/tmp/dovecot-validation-snapshot.json"
@@ -40,12 +60,13 @@
     - name: "Rejecting an incomplete prior validation run"
       ansible.builtin.assert:
         that: >-
-          not dovecot_validation_existing_token.stat.exists or
-          dovecot_validation_existing_snapshot.stat.exists
+           dovecot_validation_existing_tokens.matched == 0 or
+           dovecot_validation_existing_tokens.matched == 1 and
+           dovecot_validation_existing_snapshot.stat.exists
         fail_msg: "A validation token exists without its snapshot; refusing to reuse stale state"
     - name: "Validating an existing validation snapshot before reuse"
       when:
-        - dovecot_validation_existing_token.stat.exists
+        - dovecot_validation_existing_tokens.matched == 1
         - dovecot_validation_existing_snapshot.stat.exists
       block:
         - name: "Reading an existing validation snapshot"
@@ -84,8 +105,8 @@
     - name: "Detecting validation snapshot initialization"
       ansible.builtin.set_fact:
         dovecot_validation_snapshot_initialized: >-
-          {{ dovecot_validation_existing_token.stat.exists and
-             dovecot_validation_existing_snapshot.stat.exists }}
+           {{ dovecot_validation_existing_tokens.matched == 1 and
+              dovecot_validation_existing_snapshot.stat.exists }}
     - name: "Collecting initial package state"
       ansible.builtin.package_facts:
         manager: "auto"
@@ -105,9 +126,20 @@
       when:
         - not dovecot_validation_snapshot_initialized
         - dovecot_validation_initial_fstab_stat.stat.exists
-    - name: "Generating one controller token for this validation run"
+    - name: "Creating one unique controller token for this validation run"
+      ansible.builtin.tempfile:
+        path: "{{ dovecot_molecule_ephemeral_directory }}"
+        state: "file"
+        prefix: "dovecot-validation-token-"
+      delegate_to: "localhost"
+      register: dovecot_validation_token_file
+      changed_when: false
+      delegate_facts: true
+      run_once: true  # noqa run-once[task]
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Generating the validation-run token content"
       ansible.builtin.set_fact:
-        dovecot_validation_run_token: "{{ lookup('pipe', 'date +%s%N') }}"
+        dovecot_validation_run_token: "{{ lookup('pipe', \"python3 -c 'import secrets; print(secrets.token_urlsafe(32))'\") }}"
       delegate_to: "localhost"
       delegate_facts: true
       run_once: true  # noqa run-once[task]
@@ -119,11 +151,28 @@
     - name: "Persisting per-run validation token for verify"
       ansible.builtin.copy:
         content: "{{ hostvars['localhost'].dovecot_validation_run_token }}\n"
-        dest: "{{ dovecot_validation_token_path }}"
+        dest: "{{ dovecot_validation_token_file.path }}"
         mode: "0600"
-      delegate_to: "localhost"
       become: false
+      delegate_to: "localhost"
+      delegate_facts: false
       run_once: true  # noqa run-once[task]
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Checking validation token security"
+      ansible.builtin.stat:
+        path: "{{ dovecot_validation_token_file.path }}"
+        follow: false
+      delegate_to: "localhost"
+      register: dovecot_validation_token_stat
+      run_once: true  # noqa run-once[task]
+      when: not dovecot_validation_snapshot_initialized
+    - name: "Rejecting an insecure validation token"
+      ansible.builtin.assert:
+        that:
+          - dovecot_validation_token_stat.stat.isreg
+          - dovecot_validation_token_stat.stat.mode == '0600'
+          - dovecot_validation_token_stat.stat.uid == (lookup('pipe', 'id -u') | int)
+        fail_msg: "Validation token must be a controller-owned regular 0600 file"
       when: not dovecot_validation_snapshot_initialized
     - name: "Snapshotting pre-existing validation fixtures"
       ansible.builtin.include_tasks: collect_fixture_snapshot.yml
@@ -569,5 +618,73 @@
             that:
               - ansible_failed_result is defined
               - >-
-                "Dovecot cron_file values must be unique" in
-                (ansible_failed_result.msg | default(''))
+               "Dovecot cron_file values must be unique" in
+                 (ansible_failed_result.msg | default(''))
+
+- name: "Reject protected Dovecot extra parameters"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+          extra_parameters:
+            ssl: "yes"
+  tasks:
+    - name: "Expect protected parameter rejection"
+      block:
+        - name: "Running role with protected extra parameters"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if protected extra parameters were accepted"
+          ansible.builtin.fail:
+            msg: "Protected extra_parameters were accepted"
+      rescue:
+        - name: "Collect protected-parameter failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Assert the exact protected-parameter failure"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Dovecot extra_parameters must be a mapping with valid, non-protected keys and single-line values"
+                in dovecot_validation_failure_messages
+
+- name: "Reject Dovecot configuration newline injection"
+  hosts: all
+  become: false
+  vars:
+    state: "validate"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no\nssl = yes"
+  tasks:
+    - name: "Expect newline injection rejection"
+      block:
+        - name: "Running role with newline injection"
+          ansible.builtin.include_role:
+            name: "ansible-iac-role-dovecot"
+        - name: "Failing if newline injection was accepted"
+          ansible.builtin.fail:
+            msg: "Configuration newline injection was accepted"
+      rescue:
+        - name: "Collect newline-injection failure messages"
+          ansible.builtin.set_fact:
+            dovecot_validation_failure_messages: >-
+              {{ [ansible_failed_result.msg | default('')] +
+                 (ansible_failed_result.results | default([]) |
+                 selectattr('msg', 'defined') | map(attribute='msg') | list) }}
+        - name: "Assert the exact newline-injection failure"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result is defined
+              - >-
+                "Dovecot configuration values must not contain carriage returns or newlines"
+                in dovecot_validation_failure_messages

@@ -1,0 +1,150 @@
+---
+- name: "Checking the transaction artifact without following links"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_cleanup_record.artifact }}"
+    follow: false
+  register: dovecot_cleanup_artifact_stat
+  no_log: true
+  changed_when: false
+
+- name: "Checking the transaction marker without following links"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_cleanup_record.marker }}"
+    follow: false
+  register: dovecot_cleanup_marker_stat
+  no_log: true
+  changed_when: false
+
+- name: "Reading the transaction marker"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_configuration_cleanup_record.marker }}"
+  register: dovecot_cleanup_marker_content
+  when: dovecot_cleanup_marker_stat.stat.isreg | default(false)
+  no_log: true
+
+- name: "Refusing an unowned or raced transaction artifact"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (not dovecot_cleanup_artifact_stat.stat.exists | default(false) and
+         not dovecot_cleanup_marker_stat.stat.exists | default(false)) or
+        ((dovecot_configuration_cleanup_record.allow_orphan_artifact | default(false) | bool) and
+         dovecot_cleanup_artifact_stat.stat.isreg | default(false) and
+         dovecot_cleanup_artifact_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_artifact_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_artifact_stat.stat.mode | default('') == '0600' and
+         not dovecot_cleanup_marker_stat.stat.exists | default(false)) or
+        (dovecot_cleanup_artifact_stat.stat.isreg | default(false) and
+         dovecot_cleanup_artifact_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_artifact_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_artifact_stat.stat.mode | default('') == '0600' and
+         dovecot_cleanup_marker_stat.stat.isreg | default(false) and
+         dovecot_cleanup_marker_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_marker_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_marker_stat.stat.mode | default('') == '0600' and
+         (dovecot_cleanup_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+    fail_msg: "Refusing to remove an unowned, symlinked, orphaned, or raced Dovecot transaction artifact"
+
+- name: "Rechecking the transaction artifact before removal"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_cleanup_record.artifact }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_cleanup_artifact_final_stat
+  no_log: true
+  changed_when: false
+
+- name: "Rechecking the transaction marker before artifact removal"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_cleanup_record.marker }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_cleanup_marker_final_stat
+  no_log: true
+  changed_when: false
+
+- name: "Refusing a changed transaction artifact during cleanup"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (dovecot_cleanup_artifact_final_stat.stat.exists | default(false)) ==
+        (dovecot_cleanup_artifact_stat.stat.exists | default(false))
+      - >-
+        not (dovecot_cleanup_artifact_final_stat.stat.exists | default(false)) or
+        (dovecot_cleanup_artifact_final_stat.stat.isreg | default(false) and
+         dovecot_cleanup_artifact_final_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_artifact_final_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_artifact_final_stat.stat.mode | default('') == '0600' and
+         dovecot_cleanup_artifact_final_stat.stat.checksum == dovecot_cleanup_artifact_stat.stat.checksum)
+      - >-
+        (dovecot_cleanup_marker_final_stat.stat.exists | default(false)) ==
+        (dovecot_cleanup_marker_stat.stat.exists | default(false))
+      - >-
+        not (dovecot_cleanup_marker_final_stat.stat.exists | default(false)) or
+        (dovecot_cleanup_marker_final_stat.stat.isreg | default(false) and
+         dovecot_cleanup_marker_final_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_marker_final_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_marker_final_stat.stat.mode | default('') == '0600' and
+         (dovecot_cleanup_marker_final_stat.stat.checksum | default('')) ==
+         (dovecot_cleanup_marker_stat.stat.checksum | default('')))
+    fail_msg: "Refusing to remove a transaction artifact changed after ownership validation"
+
+- name: "Removing the exact owned transaction marker"
+  ansible.builtin.file:
+    path: "{{ dovecot_configuration_cleanup_record.marker }}"
+    state: "absent"
+  when:
+    - dovecot_cleanup_artifact_stat.stat.isreg | default(false)
+    - dovecot_cleanup_artifact_stat.stat.uid | default(-1) == 0
+    - dovecot_cleanup_artifact_stat.stat.gid | default(-1) == 0
+    - dovecot_cleanup_artifact_stat.stat.mode | default('') == '0600'
+    - dovecot_cleanup_marker_stat.stat.isreg | default(false)
+    - dovecot_cleanup_marker_stat.stat.uid | default(-1) == 0
+    - dovecot_cleanup_marker_stat.stat.gid | default(-1) == 0
+    - dovecot_cleanup_marker_stat.stat.mode | default('') == '0600'
+    - (dovecot_cleanup_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content
+  no_log: true
+  changed_when: false
+
+- name: "Rechecking the artifact after marker removal"
+  ansible.builtin.stat:
+    path: "{{ dovecot_configuration_cleanup_record.artifact }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  register: dovecot_cleanup_artifact_last_stat
+  no_log: true
+  changed_when: false
+
+- name: "Refusing an artifact race after marker removal"
+  ansible.builtin.assert:
+    that:
+      - not dovecot_cleanup_artifact_last_stat.stat.exists | default(false) or
+        (dovecot_cleanup_artifact_last_stat.stat.isreg | default(false) and
+         dovecot_cleanup_artifact_last_stat.stat.uid | default(-1) == 0 and
+         dovecot_cleanup_artifact_last_stat.stat.gid | default(-1) == 0 and
+         dovecot_cleanup_artifact_last_stat.stat.mode | default('') == '0600' and
+         (dovecot_cleanup_artifact_last_stat.stat.checksum | default('')) ==
+         (dovecot_cleanup_artifact_final_stat.stat.checksum | default('')))
+    fail_msg: "Refusing to remove a transaction artifact changed after marker removal"
+
+- name: "Removing the exact owned transaction artifact"
+  ansible.builtin.file:
+    path: "{{ dovecot_configuration_cleanup_record.artifact }}"
+    state: "absent"
+  when:
+    - dovecot_cleanup_artifact_last_stat.stat.isreg | default(false)
+    - dovecot_cleanup_artifact_last_stat.stat.uid | default(-1) == 0
+    - dovecot_cleanup_artifact_last_stat.stat.gid | default(-1) == 0
+    - dovecot_cleanup_artifact_last_stat.stat.mode | default('') == '0600'
+    - >-
+      (dovecot_cleanup_marker_stat.stat.isreg | default(false)) or
+      (dovecot_configuration_cleanup_record.allow_orphan_artifact | default(false) | bool and
+       not dovecot_cleanup_marker_stat.stat.exists | default(false))
+    - >-
+      not dovecot_cleanup_marker_stat.stat.exists | default(false) or
+      (dovecot_cleanup_marker_stat.stat.uid | default(-1) == 0 and
+       dovecot_cleanup_marker_stat.stat.gid | default(-1) == 0 and
+       dovecot_cleanup_marker_stat.stat.mode | default('') == '0600' and
+       (dovecot_cleanup_marker_content.content | default('') | b64decode) == dovecot_idarsi_marker_content)
+  no_log: true
+  changed_when: false

@@ -1,0 +1,58 @@
+---
+- name: "Checking bind target mount status before migration"
+  ansible.builtin.command:
+    argv:
+      - "findmnt"
+      - "--noheadings"
+      - "--mountpoint"
+      - "{{ dovecot_bind_record.target }}"
+  register: dovecot_bind_target_mount
+  changed_when: false
+  failed_when: false
+
+- name: "Checking bind migration source and target directories"
+  when: dovecot_bind_target_mount.rc != 0
+  block:
+    - name: "Checking bind migration source"
+      ansible.builtin.stat:
+        path: "{{ dovecot_bind_record.source }}"
+      register: dovecot_bind_source_stat
+
+    - name: "Checking bind migration target"
+      ansible.builtin.stat:
+        path: "{{ dovecot_bind_record.target }}"
+      register: dovecot_bind_target_stat
+
+    - name: "Listing existing bind migration target contents"
+      ansible.builtin.find:
+        paths: "{{ dovecot_bind_record.target }}"
+        recurse: false
+        hidden: true
+        file_type: any
+      register: dovecot_bind_target_contents
+      when: dovecot_bind_target_stat.stat.exists and dovecot_bind_target_stat.stat.isdir
+
+    - name: "Listing existing bind migration source contents"
+      ansible.builtin.find:
+        paths: "{{ dovecot_bind_record.source }}"
+        recurse: false
+        hidden: true
+        file_type: any
+      register: dovecot_bind_source_contents
+      when: dovecot_bind_source_stat.stat.exists and dovecot_bind_source_stat.stat.isdir
+
+    - name: "Recording whether bind migration is required"
+      ansible.builtin.set_fact:
+        dovecot_bind_migration_needed: true
+      when:
+        - dovecot_bind_target_contents.files | default([]) | length > 0
+        - dovecot_bind_source_contents.files | default([]) | length == 0
+
+    - name: "Refusing ambiguous bind migration into a non-empty source"
+      ansible.builtin.assert:
+        that:
+          - dovecot_bind_target_contents.files | default([]) | length == 0 or
+            dovecot_bind_source_contents.files | default([]) | length == 0
+        fail_msg: >-
+          Cannot migrate non-empty bind target {{ dovecot_bind_record.target }}:
+          the bind source {{ dovecot_bind_record.source }} is also non-empty

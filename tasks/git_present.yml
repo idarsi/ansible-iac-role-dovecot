@@ -1,3 +1,53 @@
 ---
+- name: "Initializing Git repository change detection"
+  ansible.builtin.set_fact:
+    dovecot_git_changed: false
+
+- name: "Hashing managed Git content before convergence"
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail && find "{{ iac_git_repo_record.dest }}" -path
+      "{{ iac_git_repo_record.dest }}/.git" -prune -o -type f -print0 |
+      sort -z | xargs -0 sha256sum
+  loop: "{{ iac_git_repos | default([]) }}"
+  loop_control:
+    loop_var: iac_git_repo_record
+  register: dovecot_git_content_before
+  changed_when: false
+  failed_when: false
+
 - name: "Including shared Git present tasks"
   ansible.builtin.include_tasks: shared/git_present.yml
+
+- name: "Hashing managed Git content after convergence"
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail && find "{{ iac_git_repo_record.dest }}" -path
+      "{{ iac_git_repo_record.dest }}/.git" -prune -o -type f -print0 |
+      sort -z | xargs -0 sha256sum
+  loop: "{{ iac_git_repos | default([]) }}"
+  loop_control:
+    loop_var: iac_git_repo_record
+  register: dovecot_git_content_after
+  changed_when: false
+  failed_when: false
+
+- name: "Recording actual Git repository changes"
+  ansible.builtin.set_fact:
+    dovecot_git_changed: true
+  loop: "{{ iac_git_repos | default([]) }}"
+  loop_control:
+    loop_var: iac_git_repo_record
+    index_var: dovecot_git_index
+  when: >-
+    dovecot_git_content_before.results[dovecot_git_index].stdout !=
+    dovecot_git_content_after.results[dovecot_git_index].stdout
+
+- name: "Notifying Dovecot for configuration Git repositories"
+  ansible.builtin.debug:
+    msg: "A Dovecot configuration repository changed"
+  changed_when: true
+  when:
+    - dovecot_git_changed | default(false)
+    - iac_git_repos | selectattr('dest', 'match', '^/etc/dovecot(?:/|$)') | list | length > 0
+  notify: "dovecot configuration changed"

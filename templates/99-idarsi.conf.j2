@@ -1,10 +1,11 @@
 # Managed by Ansible. Manual changes may be overwritten.
+{% set dovecot_template_version = dovecot_render_version | default(dovecot_version.stdout | default('2.3.0'), true) %}
 
 protocols = {{ dovecot_configuration.protocols | default(dovecot_default_protocols) | join(' ') }}
 mail_location = {{ dovecot_configuration.mail_location | default(dovecot_default_mail_location) }}
 
-{% if dovecot_version.stdout is version('2.4.0', '>=') %}
-auth_allow_cleartext = {{ 'yes' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'no' }}
+{% if dovecot_template_version is version('2.4.0', '>=') %}
+auth_allow_cleartext = {{ 'no' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'yes' }}
 {% else %}
 disable_plaintext_auth = {{ 'yes' if dovecot_configuration.disable_plaintext_auth | default(dovecot_default_disable_plaintext_auth) else 'no' }}
 {% endif %}

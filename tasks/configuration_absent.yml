@@ -1,5 +1,11 @@
 ---
-- name: "Removing managed Dovecot configuration"
-  ansible.builtin.file:
-    path: "{{ dovecot_idarsi_conf_path }}"
-    state: "absent"
+- name: "Removing managed Dovecot configuration and transaction artifacts"
+  ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+  vars:
+    dovecot_configuration_cleanup_records:
+      - artifact: "{{ dovecot_idarsi_conf_path }}"
+        marker: "{{ dovecot_idarsi_conf_path }}{{ dovecot_idarsi_marker_suffix }}"
+      - artifact: "{{ dovecot_idarsi_conf_path }}.candidate"
+        marker: "{{ dovecot_idarsi_conf_path }}.candidate{{ dovecot_idarsi_marker_suffix }}"
+      - artifact: "{{ dovecot_idarsi_conf_path }}.previous"
+        marker: "{{ dovecot_idarsi_conf_path }}.previous{{ dovecot_idarsi_marker_suffix }}"

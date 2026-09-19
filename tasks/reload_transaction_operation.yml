@@ -1,0 +1,271 @@
+---
+- name: "Recording whether test-only Dovecot reload failure is injected"
+  ansible.builtin.set_fact:
+    dovecot_reload_failure_injected: "{{ dovecot_test_reload_failure_once | default(false) | bool }}"
+
+- name: "Reload Dovecot with the new managed configuration"
+  ansible.builtin.command: "/bin/false"
+  register: dovecot_reload_injection_result
+  ignore_errors: true
+  changed_when: false
+  failed_when: true
+  when: dovecot_reload_failure_injected | bool
+
+- name: "Reload Dovecot with the new managed configuration"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "reloaded"
+  register: dovecot_reload_result
+  ignore_errors: true
+  when: not (dovecot_reload_failure_injected | bool)
+
+- name: "Recording the Dovecot reload result"
+  ansible.builtin.set_fact:
+    dovecot_reload_failed: >-
+       {{ dovecot_reload_failure_injected | bool or
+          (dovecot_reload_result.failed | default(false) | bool) }}
+
+- name: "Disabling the one-shot test-only reload failure"
+  ansible.builtin.set_fact:
+    dovecot_test_reload_failure_once: false
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_test_reload_failure_once | default(false) | bool
+
+- name: "Rechecking live Dovecot state immediately before rollback"
+  ansible.builtin.stat:
+    path: "{{ dovecot_reload_live_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ dovecot_idarsi_conf_path }}"
+    - "{{ dovecot_configuration_marker_path }}"
+  loop_control:
+    loop_var: dovecot_reload_live_path
+  register: dovecot_reload_live_before_restore
+  when: dovecot_reload_failed | bool
+  no_log: true
+
+- name: "Reading live Dovecot marker immediately before rollback"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_configuration_marker_path }}"
+  register: dovecot_reload_live_marker_before_restore
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_reload_live_before_restore.results[1].stat.isreg | default(false)
+  no_log: true
+
+- name: "Failing closed on a changed live Dovecot rollback boundary"
+  ansible.builtin.assert:
+    that:
+      - dovecot_reload_live_before_restore.results[0].stat.isreg | default(false)
+      - dovecot_reload_live_before_restore.results[0].stat.uid | default(-1) == 0
+      - dovecot_reload_live_before_restore.results[0].stat.gid | default(-1) == 0
+      - dovecot_reload_live_before_restore.results[0].stat.mode | default('') == '0600'
+      - dovecot_reload_live_before_restore.results[1].stat.isreg | default(false)
+      - dovecot_reload_live_before_restore.results[1].stat.uid | default(-1) == 0
+      - dovecot_reload_live_before_restore.results[1].stat.gid | default(-1) == 0
+      - dovecot_reload_live_before_restore.results[1].stat.mode | default('') == '0600'
+      - (dovecot_reload_live_marker_before_restore.content | b64decode) == dovecot_idarsi_marker_content
+      - >-
+        dovecot_reload_live_before_restore.results[0].stat.checksum ==
+        (dovecot_managed_config_checksum | default(dovecot_reload_live_before_restore.results[0].stat.checksum))
+  when: dovecot_reload_failed | bool
+  no_log: true
+
+- name: "Checking the Dovecot rollback snapshot immediately before restore"
+  ansible.builtin.stat:
+    path: "{{ dovecot_reload_snapshot_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ dovecot_previous_config_path }}"
+    - "{{ dovecot_previous_config_marker_path }}"
+  loop_control:
+    loop_var: dovecot_reload_snapshot_path
+  register: dovecot_reload_snapshot_before_restore
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_config_existed | default(false) | bool
+  no_log: true
+
+- name: "Validating the Dovecot rollback snapshot immediately before restore"
+  ansible.builtin.assert:
+    that:
+      - dovecot_reload_snapshot_before_restore.results[0].stat.isreg
+      - dovecot_reload_snapshot_before_restore.results[0].stat.uid == dovecot_previous_config_uid | int
+      - dovecot_reload_snapshot_before_restore.results[0].stat.gid == dovecot_previous_config_gid | int
+      - dovecot_reload_snapshot_before_restore.results[0].stat.mode == dovecot_previous_config_mode
+      - dovecot_reload_snapshot_before_restore.results[0].stat.checksum == dovecot_previous_config_checksum
+      - dovecot_reload_snapshot_before_restore.results[1].stat.isreg
+      - dovecot_reload_snapshot_before_restore.results[1].stat.checksum == dovecot_previous_marker_checksum
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_config_existed | default(false) | bool
+  no_log: true
+
+- name: "Reading the rollback snapshot marker identity"
+  ansible.builtin.slurp:
+    path: "{{ dovecot_previous_config_marker_path }}"
+  register: dovecot_reload_snapshot_marker_content
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_config_existed | default(false) | bool
+  no_log: true
+
+- name: "Confirming the rollback snapshot marker identity"
+  ansible.builtin.assert:
+    that:
+      - (dovecot_reload_snapshot_marker_content.content | b64decode) == dovecot_idarsi_marker_content
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_config_existed | default(false) | bool
+  no_log: true
+
+- name: "Rechecking the live rollback boundary after snapshot validation"
+  ansible.builtin.stat:
+    path: "{{ dovecot_reload_live_final_path }}"
+    follow: false
+    checksum_algorithm: "sha256"
+  loop:
+    - "{{ dovecot_idarsi_conf_path }}"
+    - "{{ dovecot_configuration_marker_path }}"
+  loop_control:
+    loop_var: dovecot_reload_live_final_path
+  register: dovecot_reload_live_final_before_restore
+  when: dovecot_reload_failed | bool
+  no_log: true
+
+- name: "Failing closed if the live rollback boundary changed during validation"
+  ansible.builtin.assert:
+    that:
+      - dovecot_reload_live_final_before_restore.results[0].stat.isreg
+      - dovecot_reload_live_final_before_restore.results[0].stat.uid == dovecot_reload_live_before_restore.results[0].stat.uid
+      - dovecot_reload_live_final_before_restore.results[0].stat.gid == dovecot_reload_live_before_restore.results[0].stat.gid
+      - dovecot_reload_live_final_before_restore.results[0].stat.mode == dovecot_reload_live_before_restore.results[0].stat.mode
+      - dovecot_reload_live_final_before_restore.results[0].stat.checksum == dovecot_reload_live_before_restore.results[0].stat.checksum
+      - dovecot_reload_live_final_before_restore.results[1].stat.checksum == dovecot_reload_live_before_restore.results[1].stat.checksum
+  when: dovecot_reload_failed | bool
+  no_log: true
+
+- name: "Restoring the prior managed Dovecot configuration"
+  ansible.builtin.copy:
+    src: "{{ dovecot_previous_config_path }}"
+    dest: "{{ dovecot_idarsi_conf_path }}"
+    remote_src: true
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  diff: false
+  no_log: true
+  register: dovecot_reload_config_restore_result
+  ignore_errors: true
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_config_existed | default(false) | bool
+
+- name: "Removing the new managed configuration"
+  ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+  vars:
+    dovecot_configuration_cleanup_records:
+      - artifact: "{{ dovecot_idarsi_conf_path }}"
+        marker: "{{ dovecot_configuration_marker_path }}"
+  register: dovecot_reload_config_remove_result
+  ignore_errors: true
+  when:
+    - dovecot_reload_failed | bool
+    - not (dovecot_previous_config_existed | default(false) | bool)
+
+- name: "Restoring the prior Dovecot ownership marker"
+  ansible.builtin.copy:
+    content: "{{ dovecot_previous_marker_content | b64decode }}"
+    dest: "{{ dovecot_configuration_marker_path }}"
+    owner: "{{ dovecot_previous_marker_uid }}"
+    group: "{{ dovecot_previous_marker_gid }}"
+    mode: "{{ dovecot_previous_marker_mode }}"
+  diff: false
+  no_log: true
+  register: dovecot_reload_marker_restore_result
+  ignore_errors: true
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_previous_marker_existed | default(false) | bool
+
+- name: "Removing the new Dovecot ownership marker"
+  ansible.builtin.file:
+    path: "{{ dovecot_configuration_marker_path }}"
+    state: "absent"
+  register: dovecot_reload_marker_remove_result
+  ignore_errors: true
+  when:
+    - dovecot_reload_failed | bool
+    - not (dovecot_previous_marker_existed | default(false) | bool)
+
+- name: "Recording whether the prior Dovecot configuration was restored"
+  ansible.builtin.set_fact:
+    dovecot_reload_restoration_complete: >-
+      {{ (not dovecot_reload_failed | bool) or
+         (not (dovecot_reload_config_restore_result.failed | default(false) | bool)) and
+         (not (dovecot_reload_config_remove_result.failed | default(false) | bool)) and
+         (not (dovecot_reload_marker_restore_result.failed | default(false) | bool)) and
+         (not (dovecot_reload_marker_remove_result.failed | default(false) | bool)) }}
+
+- name: "Reloading the restored prior Dovecot configuration"
+  ansible.builtin.systemd:
+    name: "{{ dovecot_service_name }}"
+    state: "reloaded"
+  register: dovecot_restored_reload_result
+  ignore_errors: true
+  when: dovecot_reload_failed | bool and dovecot_reload_restoration_complete | bool
+
+- name: "Recording whether Dovecot rollback completed"
+  ansible.builtin.set_fact:
+    dovecot_reload_restoration_complete: >-
+      {{ dovecot_reload_restoration_complete | bool and
+         not (dovecot_restored_reload_result.failed | default(false) | bool) }}
+
+- name: "Removing committed Dovecot rollback artifacts with guarded cleanup"
+  ansible.builtin.include_tasks: configuration_transaction_cleanup.yml
+  vars:
+    dovecot_configuration_cleanup_records:
+      - artifact: "{{ dovecot_previous_config_path }}"
+        marker: "{{ dovecot_previous_config_marker_path }}"
+  when: dovecot_reload_restoration_complete | bool
+  no_log: true
+  register: dovecot_reload_cleanup_result
+  ignore_errors: true
+  changed_when: false
+
+- name: "Recording whether Dovecot rollback cleanup completed"
+  ansible.builtin.set_fact:
+    dovecot_reload_cleanup_complete: >-
+      {{ not dovecot_reload_restoration_complete | bool or
+          not (dovecot_reload_cleanup_result.failed | default(false) | bool) }}
+
+- name: "Recording the completed Dovecot configuration transaction"
+  ansible.builtin.set_fact:
+    dovecot_configuration_transaction_handled: true
+  when: dovecot_reload_cleanup_complete | bool
+  # noqa: no-handler
+
+- name: "Failing because Dovecot rollback could not complete"
+  ansible.builtin.fail:
+    msg: "Dovecot reload failed and restoration could not be completed; rollback artifacts were retained"
+  when:
+    - dovecot_reload_failed | bool
+    - not dovecot_reload_restoration_complete | bool or
+      not dovecot_reload_cleanup_complete | bool
+
+- name: "Failing after transactional Dovecot reload rollback"
+  ansible.builtin.fail:
+    msg: "Test-only Dovecot reload failure injection: Dovecot reload failed; the prior managed configuration was restored and reloaded"
+  when:
+    - dovecot_reload_failed | bool
+    - dovecot_reload_restoration_complete | bool
+    - dovecot_reload_cleanup_complete | bool
+
+- name: "Failing because Dovecot rollback cleanup could not complete"
+  ansible.builtin.fail:
+    msg: "Dovecot reload completed, but rollback artifacts could not be cleaned up"
+  when:
+    - not dovecot_reload_cleanup_complete | bool

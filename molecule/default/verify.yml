@@ -25,15 +25,95 @@
         path: "{{ dovecot_config_path }}"
       register: dovecot_config_stat
 
+    - name: "Checking transactional candidate was removed"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}.candidate"
+        follow: false
+      register: dovecot_candidate_stat
+
+    - name: "Checking transactional rollback copy was removed"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}.previous"
+        follow: false
+      register: dovecot_previous_config_stat
+
+    - name: "Checking managed configuration marker lifecycle"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}.idarsi-managed"
+        follow: false
+      register: dovecot_config_marker_stat
+
+    - name: "Reading managed configuration marker"
+      ansible.builtin.slurp:
+        path: "{{ dovecot_config_path }}.idarsi-managed"
+      register: dovecot_config_marker_content
+
+    - name: "Checking transactional marker cleanup"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}.candidate.idarsi-managed"
+        follow: false
+      register: dovecot_candidate_marker_stat
+    - name: "Checking rollback marker cleanup"
+      ansible.builtin.stat:
+        path: "{{ dovecot_config_path }}.previous.idarsi-managed"
+        follow: false
+      register: dovecot_previous_marker_stat
+
     - name: "Reading Dovecot config file"
       ansible.builtin.slurp:
         path: "{{ dovecot_config_path }}"
       register: dovecot_config_content
 
-    - name: "Checking Dovecot effective configuration"
-      ansible.builtin.command: "doveconf -n"
+    - name: "Checking effective Dovecot configuration"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-n"
       register: dovecot_effective_config
       changed_when: false
+
+    - name: "Checking effective Dovecot protocols"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-h"
+          - "protocols"
+      register: dovecot_effective_protocols
+      changed_when: false
+
+    - name: "Checking effective Dovecot authentication mechanisms"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-h"
+          - "auth_mechanisms"
+      register: dovecot_effective_auth_mechanisms
+      changed_when: false
+
+    - name: "Checking installed Dovecot version for syntax regression coverage"
+      ansible.builtin.command: "dovecot --version"
+      register: dovecot_installed_version
+      changed_when: false
+
+    - name: "Checking effective Dovecot pre-2.4 plaintext policy value"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-h"
+          - "disable_plaintext_auth"
+      register: dovecot_effective_disable_plaintext_auth
+      changed_when: false
+      when: dovecot_installed_version.stdout is version('2.4.0', '<')
+
+    - name: "Checking effective Dovecot 2.4 plaintext policy value"
+      ansible.builtin.command:
+        argv:
+          - "doveconf"
+          - "-h"
+          - "auth_allow_cleartext"
+      register: dovecot_effective_auth_allow_cleartext
+      changed_when: false
+      when: dovecot_installed_version.stdout is version('2.4.0', '>=')
 
     - name: "Checking shared managed directory"
       ansible.builtin.stat:
@@ -58,6 +138,7 @@
     - name: "Checking shared cron ownership marker"
       ansible.builtin.stat:
         path: "/etc/cron.d/.dovecot_heartbeat.idarsi-managed"
+        follow: false
       register: dovecot_cron_marker_check
 
     - name: "Reading shared cron ownership marker"
@@ -108,19 +189,33 @@
           - ansible_facts.services['dovecot.service'].state == 'running'
           - dovecot_config_stat.stat.exists
           - dovecot_config_stat.stat.isreg
-          - dovecot_config_content.content | b64decode is search('protocols = imap pop3')
-          - dovecot_config_content.content | b64decode is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
+          - dovecot_config_stat.stat.mode == '0600'
+          - not dovecot_candidate_stat.stat.exists
+          - not dovecot_previous_config_stat.stat.exists
+          - dovecot_config_marker_stat.stat.isreg
+          - dovecot_config_marker_stat.stat.uid == 0
+          - dovecot_config_marker_stat.stat.gid == 0
+          - dovecot_config_marker_stat.stat.mode == '0600'
+          - (dovecot_config_marker_content.content | b64decode) == 'idarsi-managed-dovecot\n'
+          - not dovecot_candidate_marker_stat.stat.exists
+          - not dovecot_previous_marker_stat.stat.exists
+          - (dovecot_config_content.content | b64decode) is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
+          - ('protocols = imap' in (dovecot_config_content.content | b64decode).splitlines())
+          - ('auth_mechanisms = plain' in (dovecot_config_content.content | b64decode).splitlines())
+          - (dovecot_config_content.content | b64decode) is search('ssl = no')
           - >-
-            dovecot_config_content.content | b64decode is search('disable_plaintext_auth = yes')
-            or dovecot_config_content.content | b64decode is search('auth_allow_cleartext = no')
-          - dovecot_config_content.content | b64decode is search('auth_mechanisms = plain login')
-          - dovecot_config_content.content | b64decode is search('ssl = no')
-          - dovecot_config_content.content | b64decode is search('login_greeting = Dovecot ready.')
-          - dovecot_config_content.content | b64decode is search('mail_privileged_group = mail')
-          - dovecot_effective_config.stdout is search('protocols = imap pop3')
-          - dovecot_effective_config.stdout is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
-          - dovecot_effective_config.stdout is search('auth_mechanisms = plain login')
-          - dovecot_effective_config.stdout is search('ssl = no')
+            (dovecot_config_content.content | b64decode) is search('disable_plaintext_auth = yes') or
+            (dovecot_config_content.content | b64decode) is search('auth_allow_cleartext = no')
+          - ('imap' in (dovecot_effective_protocols.stdout | trim | split()))
+          - >-
+            (dovecot_effective_protocols.stdout | trim | split() | difference(['imap', 'pop3']))
+            | length == 0
+          - ('plain' in (dovecot_effective_auth_mechanisms.stdout | trim | split()))
+          - >-
+            (dovecot_effective_auth_mechanisms.stdout | trim | split()
+            | difference(['plain', 'login'])) | length == 0
+          - (dovecot_effective_config.stdout) is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
+          - (dovecot_effective_config.stdout) is search('ssl = no')
           - dovecot_shared_directory_check.stat.exists
           - dovecot_shared_directory_check.stat.isdir
           - dovecot_shared_file_check.stat.exists
@@ -129,8 +224,8 @@
           - dovecot_cron_marker_check.stat.exists
           - dovecot_cron_marker_check.stat.isreg
           - dovecot_cron_marker_check.stat.mode == '0600'
-          - dovecot_cron_marker_content.content | b64decode is search('"path":')
-          - dovecot_cron_marker_content.content | b64decode is search('"checksum":')
+          - (dovecot_cron_marker_content.content | b64decode) is search('"path":')
+          - (dovecot_cron_marker_content.content | b64decode) is search('"checksum":')
           - (dovecot_cron_file_content.content | b64decode) is search('/bin/true')
           - dovecot_git_fixture_file_check.stat.exists
           - (dovecot_git_fixture_content.content | b64decode) == 'dovecot molecule git fixture\n'
@@ -139,3 +234,509 @@
           - (dovecot_bind_mount_source.stdout | trim) is search(dovecot_bind_source)
           - dovecot_bind_fstab_check.rc == 0
         fail_msg: "Dovecot Molecule verification failed"
+
+    - name: "Checking effective Dovecot 2.4 plaintext policy"
+      ansible.builtin.assert:
+        that:
+          - (dovecot_effective_auth_allow_cleartext.stdout | trim) == 'no'
+        fail_msg: "Dovecot 2.4 effective plaintext authentication policy is not secure"
+      when: dovecot_installed_version.stdout is version('2.4.0', '>=')
+
+    - name: "Checking effective Dovecot pre-2.4 plaintext policy"
+      ansible.builtin.assert:
+        that:
+          - (dovecot_effective_disable_plaintext_auth.stdout | trim) == 'yes'
+        fail_msg: "Dovecot effective plaintext authentication policy is not secure"
+      when: dovecot_installed_version.stdout is version('2.4.0', '<')
+
+- name: Verify failed reload restores the true pre-run configuration
+  hosts: all
+  become: false
+  vars:
+    ansible_become_method: su
+    state: "present"
+    dovecot_test_reload_failure_once: true
+    dovecot_test_reload_counter_path: "/tmp/dovecot-test-reload-counter"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - "imap"
+            - "pop3"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - "plain"
+            - "login"
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Dovecot ready."
+            mail_privileged_group: "mail"
+        files:
+          - path: "/etc/dovecot/reload-regression-resource.txt"
+            content: "resource-only reload fixture\n"
+            owner: "root"
+            group: "root"
+            mode: "0600"
+  tasks:
+    - name: "Removing prior reload regression fixtures"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: "absent"
+      loop:
+        - "/etc/dovecot/conf.d/99-reload-regression.conf"
+        - "/etc/dovecot/reload-regression-resource.txt"
+      tags:
+        - "molecule-idempotence-notest"
+
+    - name: "Initializing the test-only reload counter before the resource change"
+      ansible.builtin.copy:
+        dest: "{{ dovecot_test_reload_counter_path }}"
+        content: "0\n"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+        force: true
+
+    - name: "Reading configuration before injected reload failure"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_reload_config_before
+
+    - name: "Reading marker before injected reload failure"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+      register: dovecot_reload_marker_before
+
+    - name: "Collecting service state before injected reload failure"
+      ansible.builtin.service_facts:
+
+    - name: "Recording service state before injected reload failure"
+      ansible.builtin.set_fact:
+        dovecot_reload_service_before: "{{ ansible_facts.services['dovecot.service'] | default({}) }}"
+
+    - name: "Expecting injected reload failure to roll back"
+      block:
+        - name: "Applying configuration with one-shot reload failure injection"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+        - name: "Flushing the injected reload handler"
+          ansible.builtin.meta: flush_handlers
+        - name: "Rejecting unexpectedly successful injected reload"
+          ansible.builtin.fail:
+            msg: "Injected Dovecot reload failure was not raised"
+      rescue:
+        - name: "Reading configuration after injected reload failure"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf"
+          register: dovecot_reload_config_after
+        - name: "Reading marker after injected reload failure"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+          register: dovecot_reload_marker_after
+        - name: "Collecting service state after injected reload failure"
+          ansible.builtin.service_facts:
+        - name: "Checking restored service state"
+          ansible.builtin.set_fact:
+            dovecot_reload_service_after: "{{ ansible_facts.services['dovecot.service'] | default({}) }}"
+        - name: "Checking rollback snapshot cleanup"
+          ansible.builtin.stat:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+            follow: false
+          register: dovecot_reload_previous
+        - name: "Reading the reload observation counter"
+          ansible.builtin.slurp:
+            src: "{{ dovecot_test_reload_counter_path }}"
+          register: dovecot_reload_counter
+        - name: "Capturing the injected reload failure details"
+          ansible.builtin.set_fact:
+            dovecot_reload_failure_details: >-
+              {{ [
+                ansible_failed_result.stdout | default(""),
+                ansible_failed_result.stderr | default(""),
+                ansible_failed_result.exception | default("")
+              ] | map("string") | join("\n") }}
+        - name: "Asserting failed reload restored the pre-run configuration"
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg == "Dovecot convergence failed; owned pre-run snapshot recovery was attempted"
+              - >-
+                (dovecot_reload_failure_details is search(
+                "Test-only Dovecot reload failure injection: Dovecot reload failed; the prior managed configuration was restored and reloaded"
+                )) or ((dovecot_reload_counter.content | b64decode | trim) == "1")
+              - dovecot_reload_config_after.content == dovecot_reload_config_before.content
+              - dovecot_reload_marker_after.content == dovecot_reload_marker_before.content
+              - not dovecot_reload_previous.stat.exists
+              - (dovecot_reload_counter.content | b64decode | trim) == "1"
+              - (dovecot_reload_service_after.state | default('')) == (dovecot_reload_service_before.state | default(''))
+            fail_msg: "Failed Dovecot reload did not restore the true pre-run configuration"
+
+- name: Verify resource failure restores the pre-run configuration and reruns
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - "imap"
+            - "pop3"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - "plain"
+            - "login"
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Resource recovery fixture."
+        files:
+          - path: "/etc/dovecot/resource-recovery-fixture"
+            content: "resource recovery fixture\n"
+            owner: "root"
+            group: "root"
+            mode: "0600"
+        directories:
+          - path: "/tmp/dovecot-shared"
+            owner: "root"
+            group: "root"
+            mode: "0750"
+        binds:
+          - source: "/srv/data/dovecot-mail"
+            target: "/var/lib/dovecot-mail"
+            owner: "root"
+            group: "root"
+            mode: "0750"
+            move_from_target: false
+        cron:
+          - name: "dovecot_heartbeat"
+            user: "root"
+            minute: "0"
+            hour: "3"
+            job: "/bin/true"
+            cron_file: "dovecot_heartbeat"
+        git:
+          - repo: "/tmp/dovecot-molecule-source"
+            dest: "/var/lib/dovecot-config"
+            version: "main"
+            update: true
+  tasks:
+    - name: "Reading configuration before resource failure"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_resource_failure_config_before
+
+    - name: "Reading marker before resource failure"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+      register: dovecot_resource_failure_marker_before
+
+    - name: "Expecting resource failure to roll back configuration"
+      block:
+        - name: "Applying configuration with forced resource failure"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+          vars:
+            dovecot_test_resource_failure_once: true
+        - name: "Rejecting unexpectedly successful resource failure fixture"
+          ansible.builtin.fail:
+            msg: "The forced resource failure unexpectedly succeeded"
+      rescue:
+        - name: "Reading configuration after resource failure"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf"
+          register: dovecot_resource_failure_config_after
+        - name: "Reading marker after resource failure"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+          register: dovecot_resource_failure_marker_after
+        - name: "Checking resource rollback snapshot cleanup"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+          loop:
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          register: dovecot_resource_failure_snapshot
+        - name: "Checking non-configuration resources after failed transaction"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "/tmp/dovecot-shared/example.txt"
+            - "/var/lib/dovecot-config/README.md"
+            - "/etc/cron.d/dovecot_heartbeat"
+            - "/srv/data/dovecot-mail/molecule-bind-migrated.txt"
+          register: dovecot_resource_failure_resources
+        - name: "Checking service state after failed transaction"
+          ansible.builtin.service_facts:
+        - name: "Asserting resource failure restored exact pre-run state"
+          ansible.builtin.assert:
+            that:
+              - dovecot_resource_failure_config_after.content == dovecot_resource_failure_config_before.content
+              - dovecot_resource_failure_marker_after.content == dovecot_resource_failure_marker_before.content
+              - dovecot_resource_failure_snapshot.results | map(attribute='stat.exists') | list == [false, false]
+              - dovecot_resource_failure_resources.results | map(attribute='stat.exists') | list == [true, true, true, true]
+              - ansible_facts.services['dovecot.service'].state == 'running'
+            fail_msg: "Resource failure did not preserve owned resources and configuration rollback state"
+
+    - name: "Rerunning successfully after resource rollback"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+
+    - name: "Checking recovered resource fixture"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/resource-recovery-fixture"
+      register: dovecot_resource_recovery_fixture
+
+    - name: "Checking recovered configuration"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_resource_recovery_config
+
+    - name: "Asserting rerun converged after resource rollback"
+      ansible.builtin.assert:
+        that:
+          - (dovecot_resource_recovery_fixture.content | b64decode) == "resource recovery fixture\n"
+          - (dovecot_resource_recovery_config.content | b64decode) is search('login_greeting = Resource recovery fixture.')
+
+- name: Verify fresh-host resource failure removes newly installed configuration
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - "imap"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - "plain"
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Fresh-host recovery fixture."
+        files:
+          - path: "/etc/dovecot/fresh-host-recovery-fixture"
+            content: "fresh-host recovery fixture\n"
+            owner: "root"
+            group: "root"
+            mode: "0600"
+  tasks:
+    - name: "Removing managed configuration for fresh-host transaction test"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: "absent"
+      loop:
+        - "/etc/dovecot/conf.d/99-idarsi.conf"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+        - "/etc/dovecot/fresh-host-recovery-fixture"
+      tags:
+        - "molecule-idempotence-notest"
+
+    - name: "Expecting fresh-host resource failure to roll back configuration"
+      block:
+        - name: "Applying fresh-host configuration with forced resource failure"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+          vars:
+            dovecot_test_resource_failure_once: true
+        - name: "Rejecting unexpectedly successful fresh-host failure fixture"
+          ansible.builtin.fail:
+            msg: "The fresh-host resource failure unexpectedly succeeded"
+      rescue:
+        - name: "Checking fresh-host configuration rollback state"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+          loop:
+            - "/etc/dovecot/conf.d/99-idarsi.conf"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          register: dovecot_fresh_host_rollback_state
+        - name: "Asserting fresh-host rollback removed configuration and marker"
+          ansible.builtin.assert:
+            that:
+              - dovecot_fresh_host_rollback_state.results | map(attribute='stat.exists') | list == [false, false, false, false]
+            fail_msg: "Fresh-host resource failure left newly installed transaction state"
+
+    - name: "Rerunning successfully after fresh-host resource rollback"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+
+    - name: "Checking fresh-host recovery configuration"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_fresh_host_recovered_config
+
+    - name: "Asserting fresh-host rerun converged successfully"
+      ansible.builtin.assert:
+        that:
+          - dovecot_fresh_host_recovered_config.stat.exists
+
+- name: Verify resource failure reuses a pre-existing recovery snapshot
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - "imap"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - "plain"
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Reused-snapshot recovery fixture."
+        files:
+          - path: "/etc/dovecot/reused-snapshot-recovery-fixture"
+            content: "reused-snapshot recovery fixture\n"
+            owner: "root"
+            group: "root"
+            mode: "0600"
+  tasks:
+    - name: "Capturing the live configuration as a pre-existing recovery snapshot"
+      ansible.builtin.copy:
+        src: "/etc/dovecot/conf.d/99-idarsi.conf"
+        dest: "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+        remote_src: true
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      tags:
+        - "molecule-idempotence-notest"
+
+    - name: "Marking the pre-existing recovery snapshot"
+      ansible.builtin.copy:
+        content: "idarsi-managed-dovecot\n"
+        dest: "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+      tags:
+        - "molecule-idempotence-notest"
+
+    - name: "Reading the configuration before reused-snapshot failure"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_reused_snapshot_config_before
+
+    - name: "Expecting reused-snapshot resource failure to restore configuration"
+      block:
+        - name: "Applying reused-snapshot configuration with forced resource failure"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+          vars:
+            dovecot_test_resource_failure_once: true
+        - name: "Rejecting unexpectedly successful reused-snapshot fixture"
+          ansible.builtin.fail:
+            msg: "The reused-snapshot resource failure unexpectedly succeeded"
+      rescue:
+        - name: "Reading configuration after reused-snapshot failure"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf"
+          register: dovecot_reused_snapshot_config_after
+        - name: "Checking reused-snapshot cleanup"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+          loop:
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          register: dovecot_reused_snapshot_cleanup
+        - name: "Asserting reused snapshot restored the prior configuration"
+          ansible.builtin.assert:
+            that:
+              - dovecot_reused_snapshot_config_after.content == dovecot_reused_snapshot_config_before.content
+              - dovecot_reused_snapshot_cleanup.results | map(attribute='stat.exists') | list == [false, false]
+            fail_msg: "Resource failure did not consume and restore the pre-existing recovery snapshot"
+
+    - name: "Rerunning successfully after reused-snapshot rollback"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+
+    - name: "Checking reused-snapshot recovery fixture"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/reused-snapshot-recovery-fixture"
+      register: dovecot_reused_snapshot_fixture
+
+    - name: "Asserting reused-snapshot rerun converged successfully"
+      ansible.builtin.assert:
+        that:
+          - (dovecot_reused_snapshot_fixture.content | b64decode) == "reused-snapshot recovery fixture\n"
+
+- name: Verify orphan transaction state fails closed
+  hosts: all
+  become: false
+  tasks:
+    - name: "Testing every orphan transaction artifact and marker direction"
+      ansible.builtin.include_tasks: orphan_transaction_case.yml
+      loop:
+        - name: "candidate artifact without marker"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.candidate.idarsi-managed"
+          artifact_present: true
+          marker_present: false
+        - name: "candidate marker without artifact"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.candidate.idarsi-managed"
+          artifact_present: false
+          marker_present: true
+        - name: "previous artifact without marker"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          artifact_present: true
+          marker_present: false
+        - name: "previous marker without artifact"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          artifact_present: false
+          marker_present: true
+        - name: "managed artifact without marker"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+          artifact_present: true
+          marker_present: false
+        - name: "managed marker without artifact"
+          artifact: "/etc/dovecot/conf.d/99-idarsi.conf"
+          marker: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+          artifact_present: false
+          marker_present: true
+      loop_control:
+        loop_var: dovecot_orphan_case
+      vars:
+        dovecot_orphan_artifact: "{{ dovecot_orphan_case.artifact }}"
+        dovecot_orphan_marker: "{{ dovecot_orphan_case.marker }}"
+        dovecot_orphan_artifact_present: "{{ dovecot_orphan_case.artifact_present }}"
+        dovecot_orphan_marker_present: "{{ dovecot_orphan_case.marker_present }}"
+
+- name: "Verify managed marker removal"
+  hosts: all
+  become: true
+  vars:
+    ansible_become_method: su
+    state: "absent"
+    iac_blueprint:
+      dovecot: {}
+  tasks:
+    - name: "Removing the managed Dovecot configuration"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+
+    - name: "Checking the managed marker is absent after removal"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf.idarsi-managed"
+        follow: false
+      register: dovecot_removed_marker_stat
+
+    - name: "Asserting the managed marker was removed"
+      ansible.builtin.assert:
+        that:
+          - not dovecot_removed_marker_stat.stat.exists
+        fail_msg: "Managed Dovecot marker remained after removal"
