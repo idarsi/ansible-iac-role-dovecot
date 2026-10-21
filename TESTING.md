@@ -32,9 +32,14 @@ The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Po
 systemd, and privileged mode so that the bind-mount fixture can exercise
 `mount`, `/etc/fstab`, and service lifecycle behavior.
 
-RHEL 9 and RHEL 10 remain supported target operating systems for the role, but
-they are not included in the current Molecule matrix because the public UBI
-images do not provide the Dovecot package without entitled RHEL repositories.
+RHEL 9 and RHEL 10 remain declared targets, but no RHEL execution is presently
+in the automated matrix. Public UBI images are not RHEL test evidence and do
+not provide Dovecot without entitled repositories. RHEL validation requires
+installation media/repositories and credentials provided securely by the test
+operator; the repository intentionally stores no subscription secrets. The
+role test-environment repository documents a KVM + Kickstart backend with
+SELinux enforcing, but this role has no configured KVM scenario yet. SELinux
+behavior is therefore not tested or claimed here.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
@@ -53,7 +58,11 @@ minimal validation input includes an absent cron record with only `name`,
 `cron_file`, and `state`, preserving the documented removal form. Host-state
 cron guardrails are intentionally excluded from this validation-state
 scenario; they run in `cron_absent`. Full Dovecot absent/uninstall convergence is not
-part of this lightweight validation scenario. The snapshot is paired with
+part of this lightweight validation scenario. `global_absent` checks removal
+of owned transaction artifacts and cron entries, but not complete teardown
+from a converged installation or package removal. Runtime interruption/recovery
+and check-mode/diff-mode behavior also remain gaps; the dependency-free guard
+test only inspects rollback structure. The snapshot is paired with
 a per-converge token stored in the non-empty `MOLECULE_EPHEMERAL_DIRECTORY`
 provided by Molecule; verify requires the exact token match and fails if the
 snapshot or current-run token is unavailable. The validation playbooks refuse

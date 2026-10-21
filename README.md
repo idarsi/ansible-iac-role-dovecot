@@ -4,8 +4,8 @@ ANSIBLE-IAC-ROLE-DOVECOT
 > **Maturity State: Beta**<br>
 > **RC Readiness: 75% (provisional)**
 
-Assessed at the current working-tree ref (`e28bd44` plus uncommitted changes).
-The `tasks/shared` submodule is initialized at the pinned commit `d70d58e`.
+Assessed at the current working-tree ref. The `tasks/shared` submodule is a
+required dependency and must be checked out recursively.
 
 The provisional score is based on this scorecard; it is not a claim of
 complete release-candidate evidence:
@@ -16,6 +16,15 @@ complete release-candidate evidence:
 | Convergence and security | Candidate validation, guarded configuration rollback, ownership markers | Partial |
 | Documentation | Supported platforms, states, risks, and test limitations documented | Complete |
 | Automated evidence | Syntax/lint and repository scenarios exist, but the full Molecule matrix is incomplete | Incomplete |
+
+## Compatibility and releases
+
+The `iac_blueprint.dovecot` fields and public state names are the compatibility
+contract. Additive changes are preferred; removals or changed meanings require
+a migration note and a major-version release. Releases are published as Git
+tags; this repository does not currently guarantee a release cadence or a
+separately maintained compatibility matrix. See `meta/main.yml` for the
+Ansible Galaxy role metadata and declared platform family.
 
 **COPYRIGHT** 2026 ^(ida|arsi)$ collective  
 **LICENSE** MIT License [LICENSE](LICENSE)  
