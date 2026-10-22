@@ -1,0 +1,19 @@
+---
+galaxy_info:
+  namespace: "idarsi"
+  role_name: dovecot
+  author: "Arsi Atomi"
+  description: "Install and manage Dovecot on Rocky Linux and RHEL."
+  license: "MIT"
+  min_ansible_version: "2.19.0"
+  platforms:
+    - name: Rocky
+      versions: ["9", "10"]
+    - name: EL
+      versions: ["9", "10"]
+  galaxy_tags:
+    - dovecot
+    - mail
+    - imap
+    - pop3
+dependencies: []

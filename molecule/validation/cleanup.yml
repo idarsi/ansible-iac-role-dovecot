@@ -6,26 +6,17 @@
   vars:
     dovecot_molecule_ephemeral_directory: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
   tasks:
-    - name: "Find validation tokens created by this Molecule lifecycle"
+    - name: "Find validation token candidates in this private lifecycle directory"
       ansible.builtin.find:
         paths: "{{ dovecot_molecule_ephemeral_directory }}"
         patterns: "dovecot-validation-token-*"
         file_type: "file"
         follow: false
       register: dovecot_validation_token_files
-    - name: "Remove validation tokens created by this Molecule lifecycle"
+    - name: "Remove the sole validation token in this private lifecycle directory"
       ansible.builtin.file:
         path: "{{ dovecot_validation_token_file.path }}"
         state: "absent"
-      loop: "{{ dovecot_validation_token_files.files }}"
+      loop: "{{ dovecot_validation_token_files.files if dovecot_validation_token_files.matched == 1 else [] }}"
       loop_control:
         loop_var: dovecot_validation_token_file
-
-- name: "Remove the remote validation snapshot"
-  hosts: all
-  become: false
-  tasks:
-    - name: "Remove the validation snapshot securely"
-      ansible.builtin.file:
-        path: "/tmp/dovecot-validation-snapshot.json"
-        state: "absent"

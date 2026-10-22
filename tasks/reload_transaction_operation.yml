@@ -234,7 +234,6 @@
   no_log: true
   register: dovecot_reload_cleanup_result
   ignore_errors: true
-  changed_when: false
 
 - name: "Recording whether Dovecot rollback cleanup completed"
   ansible.builtin.set_fact:

@@ -1,0 +1,27 @@
+---
+- name: "Verify Dovecot lifecycle teardown"
+  hosts: all
+  become: false
+  tasks:
+    - name: "Gather package facts"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Gather service facts"
+      ansible.builtin.service_facts:
+    - name: "Check role-owned configuration is absent"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_owned_config
+    - name: "Check unmanaged fixture is preserved"
+      ansible.builtin.slurp:
+        src: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+      register: dovecot_unmanaged_config
+    - name: "Assert repeated uninstall leaves no owned installation"
+      ansible.builtin.assert:
+        that:
+          - "ansible_facts.distribution == 'Rocky'"
+          - "ansible_facts.distribution_major_version in ['9', '10']"
+          - "'dovecot' not in ansible_facts.packages"
+          - "'dovecot.service' not in ansible_facts.services or ansible_facts.services['dovecot.service'].state != 'running'"
+          - "not dovecot_owned_config.stat.exists"
+          - "dovecot_unmanaged_config.content | b64decode == '# unmanaged lifecycle fixture\n'"

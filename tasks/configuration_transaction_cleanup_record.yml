@@ -3,6 +3,7 @@
   ansible.builtin.stat:
     path: "{{ dovecot_configuration_cleanup_record.artifact }}"
     follow: false
+    checksum_algorithm: "sha256"
   register: dovecot_cleanup_artifact_stat
   no_log: true
   changed_when: false
@@ -11,6 +12,7 @@
   ansible.builtin.stat:
     path: "{{ dovecot_configuration_cleanup_record.marker }}"
     follow: false
+    checksum_algorithm: "sha256"
   register: dovecot_cleanup_marker_stat
   no_log: true
   changed_when: false

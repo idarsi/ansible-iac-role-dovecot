@@ -1,0 +1,83 @@
+---
+- name: "Exercise Dovecot install and uninstall lifecycle"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: false
+  vars:
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Install and configure Dovecot"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "install"
+
+    - name: "Gather installed package facts"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Gather running service facts"
+      ansible.builtin.service_facts:
+    - name: "Check role-owned configuration after install"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_owned_config
+    - name: "Assert installation converged"
+      ansible.builtin.assert:
+        that:
+          - "'dovecot' in ansible_facts.packages"
+          - "'dovecot.service' in ansible_facts.services"
+          - "ansible_facts.services['dovecot.service'].state == 'running'"
+          - "dovecot_owned_config.stat.exists"
+
+    - name: "Create unmanaged configuration fixture"
+      ansible.builtin.copy:
+        dest: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+        content: "# unmanaged lifecycle fixture\n"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+
+    - name: "Run uninstall once"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "uninstall"
+
+- name: "Verify a fresh uninstall invocation preserves unmanaged configuration"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: false
+  vars:
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Run uninstall a second time in a distinct play"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "uninstall"
+    - name: "Read unmanaged configuration after both uninstall calls"
+      ansible.builtin.slurp:
+        src: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+      register: dovecot_unmanaged_content
+    - name: "Assert unmanaged configuration is unchanged"
+      ansible.builtin.assert:
+        that:
+          - "dovecot_unmanaged_content.content | b64decode == '# unmanaged lifecycle fixture\n'"

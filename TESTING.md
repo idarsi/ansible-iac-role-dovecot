@@ -1,9 +1,9 @@
 # Testing
 
-This role uses Molecule with the Podman driver for integration testing. The
-current scenarios cover Rocky Linux 9 and 10 container workflows. The matrix is
-intentionally narrower than the complete list of operating systems supported
-by the role.
+This role uses Molecule with Podman for routine integration tests and includes
+a KVM scenario for RHEL SELinux and host behavior. Rocky coverage uses
+containers; RHEL is tested only in licensed RHEL guests, never inferred from
+UBI images. Neither backend covers the entire supported-OS claim yet.
 
 The dependency-free local guard test checks the rollback task structure for
 changed live configuration, changed `.previous` content or metadata, marker
@@ -27,19 +27,46 @@ Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
+Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
 
 The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Podman,
 systemd, and privileged mode so that the bind-mount fixture can exercise
 `mount`, `/etc/fstab`, and service lifecycle behavior.
 
-RHEL 9 and RHEL 10 remain supported target operating systems for the role, but
-they are not included in the current Molecule matrix because the public UBI
-images do not provide the Dovecot package without entitled RHEL repositories.
+RHEL 9 and RHEL 10 remain declared targets, but no RHEL execution is presently
+reported. Public UBI images are not RHEL test evidence and do not provide
+Dovecot without entitled repositories. RHEL validation requires
+installation media/repositories and credentials provided securely by the test
+operator; the repository intentionally stores no subscription secrets. The
+role's `kvm` scenario boots RHEL 9 and 10 guests using the shared KVM
+create/destroy playbooks, a Kickstart that explicitly enforces SELinux, and
+assertions for runtime `getenforce`, persistent SELinux configuration, RHEL
+identity/version. It asserts that install produces an installed, running
+Dovecot service and role-owned configuration, then runs `uninstall` and
+asserts the package, running service, and role-owned configuration are gone
+while unmanaged configuration remains. Removal is invoked twice to check
+repeat convergence. The lifecycle scenario does not validate mail-data labels
+or prove absence of AVC denials. It is configured but has not been run;
+successful RHEL lifecycle/SELinux coverage is not claimed until a run passes.
+Run it with the shared environment's KVM profile active:
+`molecule test -s kvm`. Setup requires the shared `idarsi-test` libvirt
+network/base-image pool, readable RHEL 9 and 10 installation ISOs (or valid
+cached base images), hardware KVM, and guest access to entitled RHEL
+repositories so the role can install Dovecot. The shared tooling discovers
+RHEL ISOs named `rhel-9[.minor]-x86_64-dvd.iso` and
+`rhel-10[.minor]-x86_64-dvd.iso` as the corresponding RHEL9/RHEL10 source
+variables. Subscription registration and credentials are deliberately not
+embedded in the scenario; operators must configure guest repository access
+securely. This run was not attempted during this change.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
-and transaction artifacts are expected to fail closed and remain present. The default scenario is the
-normal Dovecot baseline only; it does not run destructive lifecycle states.
+and transaction artifacts are expected to fail closed and remain present. The
+default scenario runs only the normal Dovecot baseline and second-convergence
+idempotence check during converge. Its three test-only configuration transaction
+and recovery plays run in verify, after idempotence, so their intentional state
+mutations cannot contaminate the baseline idempotence check. It does not run
+destructive lifecycle states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
 and managed configuration-path guardrails. The validation scenario covers
 required TLS credentials, equal bind paths, unsafe cleanup paths, and rejected
@@ -53,10 +80,16 @@ minimal validation input includes an absent cron record with only `name`,
 `cron_file`, and `state`, preserving the documented removal form. Host-state
 cron guardrails are intentionally excluded from this validation-state
 scenario; they run in `cron_absent`. Full Dovecot absent/uninstall convergence is not
-part of this lightweight validation scenario. The snapshot is paired with
+part of this lightweight validation scenario. `global_absent` checks removal
+of owned transaction artifacts and cron entries, but not complete teardown
+from a converged installation or package removal. Runtime interruption/recovery
+and check-mode/diff-mode behavior also remain gaps; the dependency-free guard
+test only inspects rollback structure. The snapshot is paired with
 a per-converge token stored in the non-empty `MOLECULE_EPHEMERAL_DIRECTORY`
 provided by Molecule; verify requires the exact token match and fails if the
-snapshot or current-run token is unavailable. The validation playbooks refuse
+snapshot or current-run token is unavailable. The snapshot is not removed from
+the remote host during Molecule cleanup: it lives only in the disposable
+container and is removed when Molecule destroys that container. The validation playbooks refuse
 to use a shared fallback path, so a fresh Molecule run cannot inherit stale
 controller token artifacts. The token is scoped to the container and Molecule
 ephemeral directory because this scenario has no externally supplied Molecule
@@ -138,7 +171,7 @@ production-profile lint, validation, the Rocky Linux 9 `default` baseline, and
 `cron_absent`. The pull-request workflow is also manually
 dispatchable and runs that same fast set. A scheduled run occurs every
 Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default`,
-`rocky10`, and `global_absent` baseline jobs in parallel. The scheduled workflow is manually
+`rocky10`, `global_absent`, and `lifecycle` baseline jobs in parallel. The scheduled workflow is manually
 dispatchable and runs the same quality and baseline jobs. No GitHub Actions
 job claims RHEL execution; RHEL 9
 and 10 remain supported targets but are not automatically tested because the
@@ -207,8 +240,12 @@ repositories.
   file, package, active service, shared resources, bind state, cron file, and
   Git checkout.
 
-The current scenarios do not test full Dovecot lifecycle `absent` or
-`uninstall` convergence, SELinux-specific shared filesystem records, or remote
+The `global_absent` scenario first installs Dovecot and creates an unmanaged
+configuration fixture, then runs `absent` twice. It asserts the package stays
+absent, the service is not running, and the unmanaged configuration remains
+unchanged after the second call. The `lifecycle` scenario tests full install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers; `kvm` retains corresponding RHEL 9 and 10 lifecycle coverage. Check-mode and diff-mode behavior remain
+untested. The current scenarios do not test SELinux-specific shared filesystem
+records or remote
 Git authentication. The `global_absent` scenario covers transaction-artifact
 cleanup and shared cron entry-level behavior for those states, without
 installing or removing a complete Dovecot package lifecycle.
@@ -228,10 +265,13 @@ molecule test -s default
 molecule test -s rocky10
 molecule test -s cron_absent
 molecule test -s global_absent
+molecule test -s lifecycle
 ```
 
 The validation, default, and `cron_absent` commands are pull-request coverage;
-the Rocky Linux 10 and `global_absent` commands are scheduled/manual coverage.
+the Rocky Linux 10, `global_absent`, and `lifecycle` commands are
+scheduled/manual coverage. The lifecycle scenario has passed on Rocky Linux 9
+and 10; it is scheduled rather than run on pull requests.
 The workflows install the shared task dependency from
 the recursive submodule checkout and use `ansible-galaxy collection install`
 with the manifest belonging to each selected scenario.
@@ -245,7 +285,7 @@ molecule test -s default
 Run the complete current matrix:
 
 ```bash
-for scenario in default rocky10 validation cron_absent global_absent; do
+for scenario in default rocky10 validation cron_absent global_absent lifecycle; do
   molecule test -s "$scenario" || exit 1
 done
 ```
