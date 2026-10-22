@@ -200,8 +200,8 @@
           - not dovecot_candidate_marker_stat.stat.exists
           - not dovecot_previous_marker_stat.stat.exists
           - (dovecot_config_content.content | b64decode) is search('mail_location = maildir:/var/lib/dovecot-mail/%d/%n')
-          - ('protocols = imap' in (dovecot_config_content.content | b64decode).splitlines())
-          - ('auth_mechanisms = plain' in (dovecot_config_content.content | b64decode).splitlines())
+          - ('protocols = imap pop3' in (dovecot_config_content.content | b64decode).splitlines())
+          - ('auth_mechanisms = plain login' in (dovecot_config_content.content | b64decode).splitlines())
           - (dovecot_config_content.content | b64decode) is search('ssl = no')
           - >-
             (dovecot_config_content.content | b64decode) is search('disable_plaintext_auth = yes') or
