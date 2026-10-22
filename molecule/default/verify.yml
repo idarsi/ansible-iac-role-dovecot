@@ -249,6 +249,169 @@
         fail_msg: "Dovecot effective plaintext authentication policy is not secure"
       when: dovecot_installed_version.stdout is version('2.4.0', '<')
 
+- name: "Verify invalid Dovecot configuration preserves the live file"
+  hosts: all
+  become: false
+  vars:
+    state: "configuration_present"
+    dovecot_invalid_configuration:
+      ssl: "no"
+      extra_parameters:
+        idarsi_invalid_parameter: "yes"
+  tasks:
+    - name: "Reading the valid configuration before invalid transaction"
+      ansible.builtin.slurp:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_valid_configuration_before_invalid
+
+    - name: "Expecting invalid configuration transaction to fail closed"
+      block:
+        - name: "Applying an intentionally invalid Dovecot configuration"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+            tasks_from: configuration_present.yml
+          vars:
+            dovecot_configuration: "{{ dovecot_invalid_configuration }}"
+        - name: "Rejecting unexpectedly accepted invalid configuration"
+          ansible.builtin.fail:
+            msg: "Invalid Dovecot configuration was accepted"
+      rescue:
+        - name: "Reading configuration after rejected transaction"
+          ansible.builtin.slurp:
+            path: "/etc/dovecot/conf.d/99-idarsi.conf"
+          register: dovecot_configuration_after_invalid
+        - name: "Checking rejected transaction artifacts"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+          register: dovecot_invalid_transaction_artifacts
+        - name: "Asserting invalid transaction preserved the live file"
+          ansible.builtin.assert:
+            that:
+              - dovecot_configuration_after_invalid.content == dovecot_valid_configuration_before_invalid.content
+              - dovecot_invalid_transaction_artifacts.results | map(attribute='stat.exists') | list == [false, false]
+            fail_msg: "Invalid Dovecot configuration changed the live managed file"
+
+- name: "Verify failed pre-configuration convergence is recoverable"
+  hosts: all
+  become: false
+  vars:
+    state: "present"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - imap
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - plain
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Expecting convergence to fail before configuration_present"
+      block:
+        - name: "Running convergence with an unavailable package"
+          ansible.builtin.include_role:
+            name: ansible-iac-role-dovecot
+          vars:
+            dovecot_package: "dovecot-package-that-does-not-exist"
+        - name: "Rejecting unexpectedly successful failed-run fixture"
+          ansible.builtin.fail:
+            msg: "The unavailable package unexpectedly converged"
+      rescue:
+        - name: "Checking failed-run snapshot cleanup"
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+            - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+          register: dovecot_failed_run_snapshot_artifacts
+        - name: "Asserting failed-run snapshot does not block recovery"
+          ansible.builtin.assert:
+            that:
+              - dovecot_failed_run_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
+            fail_msg: "Failed convergence left a pre-run snapshot that can block recovery"
+
+    - name: "Rerunning convergence after the expected failure"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+
+    - name: "Checking recovered convergence snapshot cleanup"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
+        - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
+      register: dovecot_recovered_snapshot_artifacts
+
+    - name: "Asserting successful rerun completed without stale snapshot state"
+      ansible.builtin.assert:
+          that:
+            - dovecot_recovered_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
+
+- name: "Exercise repeated direct configuration_present transactions"
+  hosts: all
+  become: false
+  vars:
+    state: "configuration_present"
+    dovecot_test_reload_counter_path: "/tmp/dovecot-direct-configuration-reload-counter"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols:
+            - "imap"
+          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+          auth_mechanisms:
+            - "plain"
+          disable_plaintext_auth: true
+          ssl: "no"
+          extra_parameters:
+            login_greeting: "Direct configuration transaction one."
+  tasks:
+    - name: "Initializing the direct configuration reload counter"
+      ansible.builtin.copy:
+        dest: "{{ dovecot_test_reload_counter_path }}"
+        content: "0\n"
+        owner: "root"
+        group: "root"
+        mode: "0600"
+
+    - name: "Running the first direct configuration_present invocation"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+
+    - name: "Changing the direct configuration between invocations"
+      ansible.builtin.set_fact:
+        iac_blueprint:
+          dovecot:
+            configuration:
+              protocols:
+                - "imap"
+              mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
+              auth_mechanisms:
+                - "plain"
+              disable_plaintext_auth: true
+              ssl: "no"
+              extra_parameters:
+                login_greeting: "Direct configuration transaction two."
+
+    - name: "Running the second direct configuration_present invocation"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+
+    - name: "Reading the direct configuration reload counter"
+      ansible.builtin.slurp:
+        src: "{{ dovecot_test_reload_counter_path }}"
+      register: dovecot_direct_configuration_reload_counter
+
+    - name: "Asserting repeated direct invocations each reloaded Dovecot"
+      ansible.builtin.assert:
+        that:
+          - (dovecot_direct_configuration_reload_counter.content | b64decode | trim) == "2"
+        fail_msg: "Repeated configuration_present invocations did not each notify and reload"
+
 - name: Verify failed reload restores the true pre-run configuration
   hosts: all
   become: false
@@ -716,168 +879,11 @@
         dovecot_orphan_artifact_present: "{{ dovecot_orphan_case.artifact_present }}"
         dovecot_orphan_marker_present: "{{ dovecot_orphan_case.marker_present }}"
 
-- name: "Verify invalid Dovecot configuration preserves the live file"
-  hosts: all
-  become: false
-  vars:
-    state: "configuration_present"
-    dovecot_invalid_configuration:
-      ssl: "no"
-      extra_parameters:
-        idarsi_invalid_parameter: "yes"
-  tasks:
-    - name: "Reading the valid configuration before invalid transaction"
-      ansible.builtin.slurp:
-        path: "/etc/dovecot/conf.d/99-idarsi.conf"
-      register: dovecot_valid_configuration_before_invalid
 
-    - name: "Expecting invalid configuration transaction to fail closed"
-      block:
-        - name: "Applying an intentionally invalid Dovecot configuration"
-          ansible.builtin.include_role:
-            name: ansible-iac-role-dovecot
-            tasks_from: configuration_present.yml
-          vars:
-            dovecot_configuration: "{{ dovecot_invalid_configuration }}"
-        - name: "Rejecting unexpectedly accepted invalid configuration"
-          ansible.builtin.fail:
-            msg: "Invalid Dovecot configuration was accepted"
-      rescue:
-        - name: "Reading configuration after rejected transaction"
-          ansible.builtin.slurp:
-            path: "/etc/dovecot/conf.d/99-idarsi.conf"
-          register: dovecot_configuration_after_invalid
-        - name: "Checking rejected transaction artifacts"
-          ansible.builtin.stat:
-            path: "{{ item }}"
-          loop:
-            - "/etc/dovecot/conf.d/99-idarsi.conf.candidate"
-            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
-          register: dovecot_invalid_transaction_artifacts
-        - name: "Asserting invalid transaction preserved the live file"
-          ansible.builtin.assert:
-            that:
-              - dovecot_configuration_after_invalid.content == dovecot_valid_configuration_before_invalid.content
-              - dovecot_invalid_transaction_artifacts.results | map(attribute='stat.exists') | list == [false, false]
-            fail_msg: "Invalid Dovecot configuration changed the live managed file"
 
-- name: "Verify failed pre-configuration convergence is recoverable"
-  hosts: all
-  become: false
-  vars:
-    state: "present"
-    iac_blueprint:
-      dovecot:
-        configuration:
-          protocols:
-            - imap
-          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
-          auth_mechanisms:
-            - plain
-          disable_plaintext_auth: true
-          ssl: "no"
-  tasks:
-    - name: "Expecting convergence to fail before configuration_present"
-      block:
-        - name: "Running convergence with an unavailable package"
-          ansible.builtin.include_role:
-            name: ansible-iac-role-dovecot
-          vars:
-            dovecot_package: "dovecot-package-that-does-not-exist"
-        - name: "Rejecting unexpectedly successful failed-run fixture"
-          ansible.builtin.fail:
-            msg: "The unavailable package unexpectedly converged"
-      rescue:
-        - name: "Checking failed-run snapshot cleanup"
-          ansible.builtin.stat:
-            path: "{{ item }}"
-          loop:
-            - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
-            - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
-          register: dovecot_failed_run_snapshot_artifacts
-        - name: "Asserting failed-run snapshot does not block recovery"
-          ansible.builtin.assert:
-            that:
-              - dovecot_failed_run_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
-            fail_msg: "Failed convergence left a pre-run snapshot that can block recovery"
 
-    - name: "Rerunning convergence after the expected failure"
-      ansible.builtin.include_role:
-        name: ansible-iac-role-dovecot
 
-    - name: "Checking recovered convergence snapshot cleanup"
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop:
-        - "/etc/dovecot/conf.d/99-idarsi.conf.previous"
-        - "/etc/dovecot/conf.d/99-idarsi.conf.previous.idarsi-managed"
-      register: dovecot_recovered_snapshot_artifacts
 
-    - name: "Asserting successful rerun completed without stale snapshot state"
-      ansible.builtin.assert:
-        that:
-          - dovecot_recovered_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
-
-- name: "Exercise repeated direct configuration_present transactions"
-  hosts: all
-  become: false
-  vars:
-    state: "configuration_present"
-    dovecot_test_reload_counter_path: "/tmp/dovecot-direct-configuration-reload-counter"
-    iac_blueprint:
-      dovecot:
-        configuration:
-          protocols:
-            - "imap"
-          mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
-          auth_mechanisms:
-            - "plain"
-          disable_plaintext_auth: true
-          ssl: "no"
-          extra_parameters:
-            login_greeting: "Direct configuration transaction one."
-  tasks:
-    - name: "Initializing the direct configuration reload counter"
-      ansible.builtin.copy:
-        dest: "{{ dovecot_test_reload_counter_path }}"
-        content: "0\n"
-        owner: "root"
-        group: "root"
-        mode: "0600"
-
-    - name: "Running the first direct configuration_present invocation"
-      ansible.builtin.include_role:
-        name: "ansible-iac-role-dovecot"
-
-    - name: "Changing the direct configuration between invocations"
-      ansible.builtin.set_fact:
-        iac_blueprint:
-          dovecot:
-            configuration:
-              protocols:
-                - "imap"
-              mail_location: "maildir:/var/lib/dovecot-mail/%d/%n"
-              auth_mechanisms:
-                - "plain"
-              disable_plaintext_auth: true
-              ssl: "no"
-              extra_parameters:
-                login_greeting: "Direct configuration transaction two."
-
-    - name: "Running the second direct configuration_present invocation"
-      ansible.builtin.include_role:
-        name: "ansible-iac-role-dovecot"
-
-    - name: "Reading the direct configuration reload counter"
-      ansible.builtin.slurp:
-        src: "{{ dovecot_test_reload_counter_path }}"
-      register: dovecot_direct_configuration_reload_counter
-
-    - name: "Asserting repeated direct invocations each reloaded Dovecot"
-      ansible.builtin.assert:
-        that:
-          - (dovecot_direct_configuration_reload_counter.content | b64decode | trim) == "2"
-        fail_msg: "Repeated configuration_present invocations did not each notify and reload"
 
 - name: "Verify managed marker removal"
   hosts: all
