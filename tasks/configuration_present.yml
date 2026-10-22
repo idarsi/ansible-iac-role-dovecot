@@ -406,15 +406,15 @@
       ansible.builtin.assert:
         that:
           - dovecot_direct_snapshot_before_restore.results[0].stat.isreg | default(false)
-          - dovecot_direct_snapshot_before_restore.results[0].stat.uid == dovecot_previous_config_uid | int
-          - dovecot_direct_snapshot_before_restore.results[0].stat.gid == dovecot_previous_config_gid | int
-          - dovecot_direct_snapshot_before_restore.results[0].stat.mode == dovecot_previous_config_mode
-          - dovecot_direct_snapshot_before_restore.results[0].stat.checksum == dovecot_previous_config_checksum
+          - dovecot_direct_snapshot_before_restore.results[0].stat.uid | default(-1) == dovecot_previous_config_uid | int
+          - dovecot_direct_snapshot_before_restore.results[0].stat.gid | default(-1) == dovecot_previous_config_gid | int
+          - dovecot_direct_snapshot_before_restore.results[0].stat.mode | default('') == dovecot_previous_config_mode
+          - dovecot_direct_snapshot_before_restore.results[0].stat.checksum | default('') == dovecot_previous_config_checksum
           - dovecot_direct_snapshot_before_restore.results[1].stat.isreg | default(false)
-          - dovecot_direct_snapshot_before_restore.results[1].stat.uid == 0
-          - dovecot_direct_snapshot_before_restore.results[1].stat.gid == 0
-          - dovecot_direct_snapshot_before_restore.results[1].stat.mode == '0600'
-          - dovecot_direct_snapshot_before_restore.results[1].stat.checksum == dovecot_previous_marker_checksum
+          - dovecot_direct_snapshot_before_restore.results[1].stat.uid | default(-1) == 0
+          - dovecot_direct_snapshot_before_restore.results[1].stat.gid | default(-1) == 0
+          - dovecot_direct_snapshot_before_restore.results[1].stat.mode | default('') == '0600'
+          - dovecot_direct_snapshot_before_restore.results[1].stat.checksum | default('') == dovecot_previous_marker_checksum
         fail_msg: "Refusing direct Dovecot rollback because the snapshot changed"
       when: dovecot_idarsi_conf_installed is defined
       no_log: true

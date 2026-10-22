@@ -87,7 +87,9 @@ and check-mode/diff-mode behavior also remain gaps; the dependency-free guard
 test only inspects rollback structure. The snapshot is paired with
 a per-converge token stored in the non-empty `MOLECULE_EPHEMERAL_DIRECTORY`
 provided by Molecule; verify requires the exact token match and fails if the
-snapshot or current-run token is unavailable. The validation playbooks refuse
+snapshot or current-run token is unavailable. The snapshot is not removed from
+the remote host during Molecule cleanup: it lives only in the disposable
+container and is removed when Molecule destroys that container. The validation playbooks refuse
 to use a shared fallback path, so a fresh Molecule run cannot inherit stale
 controller token artifacts. The token is scoped to the container and Molecule
 ephemeral directory because this scenario has no externally supplied Molecule
