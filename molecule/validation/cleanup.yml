@@ -20,3 +20,18 @@
       loop: "{{ dovecot_validation_token_files.files }}"
       loop_control:
         loop_var: dovecot_validation_token_file
+
+- name: "Remove the remote validation snapshot"
+  hosts: all
+  become: false
+  ignore_unreachable: true
+  tasks:
+    - name: "Check whether the validation snapshot remains"
+      ansible.builtin.stat:
+        path: "/tmp/dovecot-validation-snapshot.json"
+      register: dovecot_validation_snapshot_stat
+    - name: "Remove the validation snapshot securely"
+      ansible.builtin.file:
+        path: "/tmp/dovecot-validation-snapshot.json"
+        state: "absent"
+      when: dovecot_validation_snapshot_stat.stat.exists

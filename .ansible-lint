@@ -3,3 +3,6 @@
 # The role, examples, and Molecule scenarios remain in the production check.
 exclude_paths:
   - "tasks/shared/"
+  # The bundled metadata schema predates Rocky/RHEL 9 and 10. Keep accurate
+  # platform versions in meta/main.yml rather than claiming support for all.
+  - "meta/main.yml"
