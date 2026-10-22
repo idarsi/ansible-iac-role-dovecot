@@ -62,10 +62,10 @@ securely. This run was not attempted during this change.
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
 and transaction artifacts are expected to fail closed and remain present. The
-default scenario runs the normal Dovecot baseline and second-convergence
-idempotence check; its three test-only configuration transaction and recovery
-plays remain in converge/verify coverage but are excluded from Molecule's
-idempotence phase because they intentionally mutate state. It does not run
+default scenario runs only the normal Dovecot baseline and second-convergence
+idempotence check during converge. Its three test-only configuration transaction
+and recovery plays run in verify, after idempotence, so their intentional state
+mutations cannot contaminate the baseline idempotence check. It does not run
 destructive lifecycle states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
 and managed configuration-path guardrails. The validation scenario covers
