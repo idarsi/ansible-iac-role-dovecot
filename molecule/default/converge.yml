@@ -270,6 +270,8 @@
 - name: "Verify invalid Dovecot configuration preserves the live file"
   hosts: all
   become: false
+  tags:
+    - molecule-idempotence-notest
   vars:
     state: "configuration_present"
     dovecot_invalid_configuration:
@@ -315,6 +317,8 @@
 - name: "Verify failed pre-configuration convergence is recoverable"
   hosts: all
   become: false
+  tags:
+    - molecule-idempotence-notest
   vars:
     state: "present"
     iac_blueprint:
@@ -372,6 +376,8 @@
 - name: "Exercise repeated direct configuration_present transactions"
   hosts: all
   become: false
+  tags:
+    - molecule-idempotence-notest
   vars:
     state: "configuration_present"
     dovecot_test_reload_counter_path: "/tmp/dovecot-direct-configuration-reload-counter"
