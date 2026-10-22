@@ -238,3 +238,74 @@
           - >-
             dovecot_owned_transaction_artifacts.results | map(attribute='stat.exists') | list ==
             [false, false, false, false, false, false]
+
+- name: "Repeated absent preserves unowned configuration and removes installed Dovecot"
+  hosts: all
+  become: false
+  tags:
+    - "molecule-idempotence-notest"
+  vars:
+    state: "absent"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  pre_tasks:
+    - name: "Installing Dovecot to establish the initial present state"
+      ansible.builtin.package:
+        name: "dovecot"
+        state: "present"
+      tags:
+        - "molecule-idempotence-notest"
+    - name: "Creating unmanaged configuration fixture"
+      ansible.builtin.copy:
+        dest: "/etc/dovecot/conf.d/98-unmanaged.conf"
+        content: "# unmanaged global_absent fixture\n"
+        owner: root
+        group: root
+        mode: "0644"
+      tags:
+        - "molecule-idempotence-notest"
+  tasks:
+    - name: "Running absent for the first time"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+    - name: "Checking first absent preserves unmanaged configuration"
+      ansible.builtin.slurp:
+        src: "/etc/dovecot/conf.d/98-unmanaged.conf"
+      register: dovecot_unmanaged_configuration
+    - name: "Asserting first absent preserves unmanaged configuration"
+      ansible.builtin.assert:
+        that:
+          - "dovecot_unmanaged_configuration.content | b64decode == '# unmanaged global_absent fixture\n'"
+
+- name: "Repeated absent preserves unowned configuration after a fresh invocation"
+  hosts: all
+  become: false
+  tags:
+    - "molecule-idempotence-notest"
+  vars:
+    state: "absent"
+    iac_blueprint:
+      dovecot:
+        configuration:
+          ssl: "no"
+  tasks:
+    - name: "Running absent for the second time in a distinct play"
+      ansible.builtin.include_role:
+        name: ansible-iac-role-dovecot
+    - name: "Checking repeat absent leaves package removed"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Checking Dovecot service state"
+      ansible.builtin.service_facts:
+    - name: "Reading unmanaged configuration fixture after both absent calls"
+      ansible.builtin.slurp:
+        src: "/etc/dovecot/conf.d/98-unmanaged.conf"
+      register: dovecot_unmanaged_configuration
+    - name: "Asserting repeated absent remains converged and preserves unmanaged configuration"
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.packages.dovecot is not defined
+          - "'dovecot.service' not in ansible_facts.services or ansible_facts.services['dovecot.service'].state != 'running'"
+          - "dovecot_unmanaged_configuration.content | b64decode == '# unmanaged global_absent fixture\n'"

@@ -1,0 +1,39 @@
+---
+scenario:
+  name: kvm
+
+driver:
+  name: default
+  options:
+    managed: true
+
+ansible:
+  playbooks:
+    create: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/create.yml"
+    destroy: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/destroy.yml"
+
+platforms:
+  - name: rhel9
+    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9}"
+    kickstart: rocky9-10.ks.tmpl
+    memory_mb: 4096
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
+  - name: rhel10
+    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL10}"
+    kickstart: rocky9-10.ks.tmpl
+    memory_mb: 4096
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+
+verifier:
+  name: ansible
