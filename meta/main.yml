@@ -8,9 +8,9 @@ galaxy_info:
   min_ansible_version: "2.19.0"
   platforms:
     - name: Rocky
-      versions: ["9", "10"]
+      versions: ["all"]
     - name: EL
-      versions: ["9", "10"]
+      versions: ["all"]
   galaxy_tags:
     - dovecot
     - mail

@@ -405,12 +405,12 @@
     - name: "Validating the Dovecot rollback snapshot immediately before restore"
       ansible.builtin.assert:
         that:
-          - dovecot_direct_snapshot_before_restore.results[0].stat.isreg
+          - dovecot_direct_snapshot_before_restore.results[0].stat.isreg | default(false)
           - dovecot_direct_snapshot_before_restore.results[0].stat.uid == dovecot_previous_config_uid | int
           - dovecot_direct_snapshot_before_restore.results[0].stat.gid == dovecot_previous_config_gid | int
           - dovecot_direct_snapshot_before_restore.results[0].stat.mode == dovecot_previous_config_mode
           - dovecot_direct_snapshot_before_restore.results[0].stat.checksum == dovecot_previous_config_checksum
-          - dovecot_direct_snapshot_before_restore.results[1].stat.isreg
+          - dovecot_direct_snapshot_before_restore.results[1].stat.isreg | default(false)
           - dovecot_direct_snapshot_before_restore.results[1].stat.uid == 0
           - dovecot_direct_snapshot_before_restore.results[1].stat.gid == 0
           - dovecot_direct_snapshot_before_restore.results[1].stat.mode == '0600'
