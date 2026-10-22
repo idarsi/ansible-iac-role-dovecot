@@ -1,5 +1,6 @@
 ---
 galaxy_info:
+  namespace: "idarsi"
   role_name: dovecot
   author: "Arsi Atomi"
   description: "Install and manage Dovecot on Rocky Linux and RHEL."
