@@ -348,8 +348,8 @@
 
     - name: "Asserting successful rerun completed without stale snapshot state"
       ansible.builtin.assert:
-          that:
-            - dovecot_recovered_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
+        that:
+          - dovecot_recovered_snapshot_artifacts.results | map(attribute='stat.exists') | list == [false, false]
 
 - name: "Exercise repeated direct configuration_present transactions"
   hosts: all
@@ -384,7 +384,7 @@
 
     - name: "Changing the direct configuration between invocations"
       ansible.builtin.set_fact:
-        iac_blueprint:
+        dovecot_direct_blueprint_two:
           dovecot:
             configuration:
               protocols:
@@ -400,6 +400,8 @@
     - name: "Running the second direct configuration_present invocation"
       ansible.builtin.include_role:
         name: "ansible-iac-role-dovecot"
+      vars:
+        iac_blueprint: "{{ dovecot_direct_blueprint_two }}"
 
     - name: "Reading the direct configuration reload counter"
       ansible.builtin.slurp:
@@ -878,13 +880,6 @@
         dovecot_orphan_marker: "{{ dovecot_orphan_case.marker }}"
         dovecot_orphan_artifact_present: "{{ dovecot_orphan_case.artifact_present }}"
         dovecot_orphan_marker_present: "{{ dovecot_orphan_case.marker_present }}"
-
-
-
-
-
-
-
 - name: "Verify managed marker removal"
   hosts: all
   become: true
