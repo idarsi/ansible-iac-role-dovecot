@@ -1,0 +1,46 @@
+---
+- name: "Verify Dovecot lifecycle removal and enforcing SELinux on RHEL KVM guests"
+  hosts: all
+  become: true
+  tasks:
+    - name: "Gather package and service facts"
+      ansible.builtin.package_facts:
+        manager: "auto"
+
+    - name: "Gather service facts"
+      ansible.builtin.service_facts:
+
+    - name: "Read SELinux runtime state"
+      ansible.builtin.command: getenforce
+      register: selinux_mode
+      changed_when: false
+
+    - name: "Check RHEL release and role outcomes"
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == "RedHat"
+          - ansible_facts.distribution_major_version in ["9", "10"]
+          - "'dovecot' not in ansible_facts.packages"
+          - "'dovecot.service' not in ansible_facts.services or ansible_facts.services['dovecot.service'].state != 'running'"
+          - selinux_mode.stdout == "Enforcing"
+        fail_msg: "Expected RHEL 9/10, Dovecot absent and not running, and enforcing SELinux."
+
+    - name: "Check SELinux is configured to enforce at boot"
+      ansible.builtin.command: grep -E '^SELINUX=enforcing$' /etc/selinux/config
+      changed_when: false
+
+    - name: "Verify the role-owned Dovecot configuration is removed"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_owned_config
+
+    - name: "Verify unmanaged Dovecot configuration is preserved"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+      register: dovecot_unmanaged_config
+
+    - name: "Assert owned config is removed and unmanaged config remains"
+      ansible.builtin.assert:
+        that:
+          - "not dovecot_owned_config.stat.exists"
+          - "dovecot_unmanaged_config.stat.exists"

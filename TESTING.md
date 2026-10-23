@@ -28,27 +28,19 @@ Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman 
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
 Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
+RHEL 9 and 10 KVM guests | Shared `idarsi-ansible-test-environments` KVM backend; entitled Dovecot package repositories | `kvm` (manual; not run) | SELinux-enforcing install, `getenforce`, `matchpathcon -V`, `doveconf -n`, uninstall, repeated removal, and unmanaged configuration preservation
 
-The scenario uses the `docker.io/rockylinux/rockylinux:9-ubi-init` image with Podman,
-systemd, and privileged mode so that the bind-mount fixture can exercise
-`mount`, `/etc/fstab`, and service lifecycle behavior.
-
-RHEL 9 and RHEL 10 remain declared targets, but no RHEL execution is presently
-reported. Public UBI images are not RHEL test evidence and do not provide
-Dovecot without entitled repositories. RHEL validation requires
-installation media/repositories and credentials provided securely by the test
-operator; the repository intentionally stores no subscription secrets. The
-role's `kvm` scenario boots RHEL 9 and 10 guests using the shared KVM
-create/destroy playbooks, a Kickstart that explicitly enforces SELinux, and
-assertions for runtime `getenforce`, persistent SELinux configuration, RHEL
-identity/version. It asserts that install produces an installed, running
-Dovecot service and role-owned configuration, then runs `uninstall` and
-asserts the package, running service, and role-owned configuration are gone
-while unmanaged configuration remains. Removal is invoked twice to check
-repeat convergence. The lifecycle scenario does not validate mail-data labels
+The role's `kvm` scenario boots genuine RHEL 9 and 10 guests using the shared KVM
+create/destroy playbooks and a Kickstart that explicitly enforces SELinux.
+While Dovecot is installed it checks runtime `getenforce`, verifies the managed
+configuration's default SELinux label with `matchpathcon -V`, and runs
+`doveconf -n`. It asserts installation/service/configuration, invokes
+`uninstall` repeatedly, and verifies package/service/owned-configuration removal
+and unmanaged-configuration preservation. It does not validate mail-data labels
 or prove absence of AVC denials. It is configured but has not been run;
 successful RHEL lifecycle/SELinux coverage is not claimed until a run passes.
-Run it with the shared environment's KVM profile active:
+Run it with the shared environment's KVM profile active and
+`IDARSI_TEST_ENVIRONMENT` pointing to that checkout:
 `molecule test -s kvm`. Setup requires the shared `idarsi-test` libvirt
 network/base-image pool, readable RHEL 9 and 10 installation ISOs (or valid
 cached base images), hardware KVM, and guest access to entitled RHEL
@@ -57,7 +49,10 @@ RHEL ISOs named `rhel-9[.minor]-x86_64-dvd.iso` and
 `rhel-10[.minor]-x86_64-dvd.iso` as the corresponding RHEL9/RHEL10 source
 variables. Subscription registration and credentials are deliberately not
 embedded in the scenario; operators must configure guest repository access
-securely. This run was not attempted during this change.
+securely. Both RHEL 9 and 10 source variables must resolve to valid installation sources
+for the complete two-platform scenario. This run was not attempted during this
+change; entitlement, ISO/cache availability, and hardware KVM access were not
+confirmed.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
@@ -222,7 +217,10 @@ repositories.
   preserves unrelated entries instead of deleting the whole file. It also
   verifies stale managed configuration, `.candidate`, and `.previous`
   transaction artifacts are refused and preserved when unowned. This does not
-  claim full Dovecot lifecycle absent/uninstall coverage.
+  claim full Dovecot lifecycle absent/uninstall coverage. Separate plays install
+  Dovecot, preserve an unmanaged configuration fixture through two absent runs,
+  and verify the package remains absent and service stopped after the fresh
+  second invocation. A repeated cron invocation also checks record isolation.
 - `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
   explicit absent cron record removes its marked file while leaving the `cronie`
   package state unchanged; it also verifies that a role-managed file deleted
@@ -266,6 +264,19 @@ molecule test -s rocky10
 molecule test -s cron_absent
 molecule test -s global_absent
 molecule test -s lifecycle
+```
+
+Run the manual RHEL KVM scenario separately, only after satisfying its
+environment, RHEL installation-source, entitlement, and hardware prerequisites
+above:
+
+> **Destructive test warning:** This scenario provisions disposable KVM VMs.
+> Its Kickstart runs `clearpart --all --initlabel --drives=vda`, wiping and
+> repartitioning the guest's `vda` disk. Never point this scenario at a
+> production or shared VM.
+
+```bash
+molecule test -s kvm
 ```
 
 The validation, default, and `cron_absent` commands are pull-request coverage;

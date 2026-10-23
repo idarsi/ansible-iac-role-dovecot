@@ -2,20 +2,30 @@ ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
 > **Maturity State: Beta**<br>
-> **RC Readiness: 75% (provisional)**
+> **RC Readiness: 78%**
 
-Assessed at the current working-tree ref. The `tasks/shared` submodule is a
-required dependency and must be checked out recursively.
+Assessment ref: `update/dovecot-maturity-followups` (branch snapshot). The
+`tasks/shared` submodule is a required dependency and must be checked out
+recursively.
 
-The provisional score is based on this scorecard; it is not a claim of
-complete release-candidate evidence:
+This evidence-based score is not a claim of complete release-candidate
+verification:
 
 | Category | Evidence | Status |
 | --- | --- | --- |
 | Contract and validation | Explicit states, blueprint validation, and fail-closed guards | Complete |
 | Convergence and security | Candidate validation, guarded configuration rollback, ownership markers | Partial |
 | Documentation | Supported platforms, states, risks, and test limitations documented | Complete |
-| Automated evidence | Syntax/lint and repository scenarios exist, but the full Molecule matrix is incomplete | Incomplete |
+| Automated evidence | Validation, functional and lifecycle scenarios exist; RHEL KVM scenario is configured but unrun | Partial |
+
+The assessment scores scope/contract 10/12, functional completeness 16/20,
+validation and safety 16/20, convergence and recovery 8/13, automated testing
+18/25, and documentation/release hygiene 10/10 (78% total). The role remains
+Beta because RHEL execution, recovery interruption tests, check/diff coverage,
+and platform-matrix evidence remain outstanding. The RHEL KVM scenario is
+reproducible coverage configuration, not evidence of a successful run. Full
+RC blockers include unverified RHEL 9/10 execution and incomplete automated
+recovery/check-mode evidence; see [TESTING.md](TESTING.md).
 
 ## Compatibility and releases
 

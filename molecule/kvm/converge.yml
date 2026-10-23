@@ -1,0 +1,154 @@
+---
+- name: "Converge Dovecot on RHEL KVM guests"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: true
+  vars:
+    state: install
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  roles:
+    - role: "ansible-iac-role-dovecot"
+
+- name: "Verify installed Dovecot lifecycle and remove it"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: true
+  vars:
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Check Dovecot is installed before lifecycle removal"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Check Dovecot service before lifecycle removal"
+      ansible.builtin.service_facts:
+    - name: "Check owned configuration before lifecycle removal"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_owned_before_removal
+    - name: "Assert Dovecot installation exists before lifecycle removal"
+      ansible.builtin.assert:
+        that:
+          - "'dovecot' in ansible_facts.packages"
+          - "ansible_facts.services['dovecot.service'].state == 'running'"
+          - "dovecot_owned_before_removal.stat.exists"
+    - name: "Check SELinux is enforcing while Dovecot is installed"
+      ansible.builtin.command: getenforce
+      register: dovecot_selinux_mode
+      changed_when: false
+    - name: "Check managed Dovecot configuration SELinux context"
+      ansible.builtin.command: matchpathcon -V /etc/dovecot/conf.d/99-idarsi.conf
+      register: dovecot_selinux_context
+      changed_when: false
+    - name: "Check effective Dovecot configuration"
+      ansible.builtin.command: doveconf -n
+      register: dovecot_effective_config
+      changed_when: false
+    - name: "Assert installed Dovecot behavior under enforcing SELinux"
+      ansible.builtin.assert:
+        that:
+          - dovecot_selinux_mode.stdout == "Enforcing"
+          - dovecot_selinux_context.rc == 0
+          - dovecot_effective_config.rc == 0
+    - name: "Create unmanaged configuration fixture"
+      ansible.builtin.copy:
+        dest: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+        content: "# unmanaged lifecycle fixture\n"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+    - name: "Remove Dovecot using the complete uninstall state"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "uninstall"
+    - name: "Run uninstall once"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "uninstall"
+
+- name: "Verify fresh uninstall invocation preserves unmanaged configuration"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: true
+  vars:
+    state: "uninstall"
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Run uninstall a second time in a distinct play"
+      ansible.builtin.include_role:
+        name: "ansible-iac-role-dovecot"
+      vars:
+        state: "uninstall"
+    - name: "Read unmanaged configuration after both uninstall calls"
+      ansible.builtin.slurp:
+        src: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+      register: dovecot_unmanaged_content
+    - name: "Assert unmanaged configuration is unchanged"
+      ansible.builtin.assert:
+        that:
+          - "dovecot_unmanaged_content.content | b64decode == '# unmanaged lifecycle fixture\n'"
+
+- name: "Verify uninstalled Dovecot state"
+  hosts: all
+  tags:
+    - molecule-idempotence-notest
+  become: true
+  vars:
+    iac_ansible_report: false
+    iac_blueprint:
+      dovecot:
+        configuration:
+          protocols: ["imap"]
+          mail_location: "maildir:~/Maildir"
+          auth_mechanisms: ["plain", "login"]
+          disable_plaintext_auth: true
+          ssl: "no"
+  tasks:
+    - name: "Check package and service facts after uninstall"
+      ansible.builtin.package_facts:
+        manager: "auto"
+    - name: "Check service facts after uninstall"
+      ansible.builtin.service_facts:
+    - name: "Check unmanaged configuration survives uninstall"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/98-unmanaged-lifecycle.conf"
+      register: dovecot_unmanaged_config
+    - name: "Check role-owned configuration is removed"
+      ansible.builtin.stat:
+        path: "/etc/dovecot/conf.d/99-idarsi.conf"
+      register: dovecot_owned_config
+    - name: "Assert repeated uninstall removes role-owned installation and preserves unmanaged data"
+      ansible.builtin.assert:
+        that:
+          - "'dovecot' not in ansible_facts.packages"
+          - "'dovecot.service' not in ansible_facts.services or ansible_facts.services['dovecot.service'].state != 'running'"
+          - "not dovecot_owned_config.stat.exists"
+          - "dovecot_unmanaged_config.stat.exists"
