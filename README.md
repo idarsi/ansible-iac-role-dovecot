@@ -4,7 +4,7 @@ ANSIBLE-IAC-ROLE-DOVECOT
 > **Maturity State: Beta**<br>
 > **RC Readiness: 78%**
 
-Assessment ref: `update/dovecot-maturity-followups` (branch snapshot). The
+Assessment ref: `update/dovecot-state-docs` (working tree, based on `24ad003`). The
 `tasks/shared` submodule is a required dependency and must be checked out
 recursively.
 
@@ -128,23 +128,24 @@ must set a restrictive mode for secret-bearing files (for example `0600`). The
 role cannot safely infer which arbitrary shared-resource files contain private
 keys, so this remains a caller responsibility and residual risk.
 
-These operations are supported:
+These operational states are supported:
 
-Operation                                   | State                 |
---------------------------------------------|-----------------------|
-Validate inventory only                      | validate              |
-Installing and configuring Dovecot          | install               |
-Uninstalling Dovecot                        | uninstall             |
-Installing and configuring Dovecot package  | present               |
-Uninstalling Dovecot package                | absent                |
-Updating Dovecot configuration              | configuration_present |
-Starting Dovecot                            | started               |
-Stopping Dovecot                            | stopped               |
-Restarting Dovecot                          | restarted             |
-Managing shared filesystem resources        | present / absent      |
-Managing shared bind mounts                 | present / absent      |
-Managing shared cron jobs                   | present / absent      |
-Managing shared Git working trees           | present / absent      |
+| State | Operation | Documentation |
+| --- | --- | --- |
+| `validate` | Validate inventory only | [validate](docs/states/validate.md) |
+| `install` | Install and configure Dovecot | [install](docs/states/install.md) |
+| `uninstall` | Uninstall Dovecot and managed resources | [uninstall](docs/states/uninstall.md) |
+| `present` | Ensure package and declared resources/configuration are present | [present](docs/states/present.md) |
+| `absent` | Remove package and declared managed resources/configuration | [absent](docs/states/absent.md) |
+| `configuration_present` | Converge Dovecot configuration only | [configuration_present](docs/states/configuration_present.md) |
+| `started` | Start and enable the service | [started](docs/states/started.md) |
+| `stopped` | Stop and disable the service, if installed | [stopped](docs/states/stopped.md) |
+| `restarted` | Restart and enable the service | [restarted](docs/states/restarted.md) |
+
+The shared filesystem, bind, cron, and Git operations are resource effects of
+`present` and `absent`, not additional top-level public states. The dispatcher
+contains exactly the nine states listed above; no additional public operational
+states are implemented.
 
 An explicit state is required; the role does not assume a destructive or
 installing action when `state` is omitted. The `validate` state validates the
