@@ -1,31 +1,37 @@
+> **Maturity State: Beta**
+>
+> **RC Readiness: 78%**
+
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-> **Maturity State: Beta**<br>
-> **RC Readiness: 78%**
+Assessment basis: branch `fix/kvm-molecule-schema`, commit
+`5c8685e402994b73e5caf53497e76b5a1f44bc44`, with the current working tree
+(including the uncommitted `molecule/kvm/molecule.yml` schema compatibility
+change). The `tasks/shared` submodule is initialized at `d70d58e` and remains a
+required dependency.
 
-Assessment ref: `update/dovecot-state-docs` (working tree, based on `24ad003`). The
-`tasks/shared` submodule is a required dependency and must be checked out
-recursively.
+Scorecard (criterion points / maximum):
 
-This evidence-based score is not a claim of complete release-candidate
-verification:
+| Category | Criterion scores | Subtotal |
+| --- | --- | ---: |
+| Scope and public contract | Purpose 3/3; inputs/states 4/5; support 3/4 | 10/12 |
+| Functional completeness | Core convergence 7/8; lifecycle 5/6; platform/dependencies 2/3; failure/rerun 2/3 | 16/20 |
+| Validation and safety | Preflight 5/6; secure behavior 5/6; destructive guardrails 4/5; check/diff 2/3 | 16/20 |
+| Convergence and recovery | Idempotence 4/5; transitions 2/4; operational recovery 2/4 | 8/13 |
+| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 1/3; CI enforcement 1/1 | 18/25 |
+| Documentation and release hygiene | Operator docs 4/4; test/limitations 2/2; contribution contract 2/2; metadata 2/2 | 10/10 |
 
-| Category | Evidence | Status |
-| --- | --- | --- |
-| Contract and validation | Explicit states, blueprint validation, and fail-closed guards | Complete |
-| Convergence and security | Candidate validation, guarded configuration rollback, ownership markers | Partial |
-| Documentation | Supported platforms, states, risks, and test limitations documented | Complete |
-| Automated evidence | Validation, functional and lifecycle scenarios exist; RHEL KVM scenario is configured but unrun | Partial |
-
-The assessment scores scope/contract 10/12, functional completeness 16/20,
-validation and safety 16/20, convergence and recovery 8/13, automated testing
-18/25, and documentation/release hygiene 10/10 (78% total). The role remains
-Beta because RHEL execution, recovery interruption tests, check/diff coverage,
-and platform-matrix evidence remain outstanding. The RHEL KVM scenario is
-reproducible coverage configuration, not evidence of a successful run. Full
-RC blockers include unverified RHEL 9/10 execution and incomplete automated
-recovery/check-mode evidence; see [TESTING.md](TESTING.md).
+**Total: 78/100 (rounded down); score-based and final state: Beta.** The role
+has substantial blueprint validation, guarded resource removal, configuration
+rollback, and Rocky functional/idempotence coverage. It is not an RC: recovery
+interruption and check/diff behavior lack adequate tests, and supported RHEL
+execution is unverified. The KVM schema compatibility change now passes syntax,
+but `molecule test -s kvm` fails on both RHEL guests because the Dovecot package
+is unavailable (`no package dovecot`). The same package failure occurred in the
+previous current/next runs. This is a test-environment/package-availability
+failure, not successful lifecycle evidence; RHEL lifecycle and SELinux behavior
+remain unverified. See [TESTING.md](TESTING.md) for the test boundaries.
 
 ## Compatibility and releases
 

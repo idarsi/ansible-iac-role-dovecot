@@ -7,11 +7,6 @@ driver:
   options:
     managed: true
 
-ansible:
-  playbooks:
-    create: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/create.yml"
-    destroy: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/destroy.yml"
-
 platforms:
   - name: rhel9
     install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_RHEL9}"
@@ -32,6 +27,9 @@ platforms:
 
 provisioner:
   name: ansible
+  playbooks:
+    create: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/create.yml"
+    destroy: "${IDARSI_TEST_ENVIRONMENT}/molecule/kvm/destroy.yml"
   env:
     ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
 
