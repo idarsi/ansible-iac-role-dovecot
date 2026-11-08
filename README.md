@@ -1,33 +1,33 @@
 > **Maturity State: Beta**<br>
-> **RC Readiness: 78%**
+> **RC Readiness: 80%**
 
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-Assessment basis: branch `fix/kvm-molecule-schema`, commit
-`ad220f07c1a31db5bef924189b02458f732b85ea`. The `tasks/shared` submodule is
+Assessment basis: working tree on branch `fix/kvm-molecule-schema` after the
+RHEL support removal. The `tasks/shared` submodule is
 initialized at `d70d58e` and remains a required dependency.
 
 Scorecard (criterion points / maximum):
 
 | Category | Criterion scores | Subtotal |
 | --- | --- | ---: |
-| Scope and public contract | Purpose 3/3; inputs/states 4/5; support 3/4 | 10/12 |
+| Scope and public contract | Purpose 3/3; inputs/states 4/5; support 4/4 | 11/12 |
 | Functional completeness | Core convergence 7/8; lifecycle 5/6; platform/dependencies 2/3; failure/rerun 2/3 | 16/20 |
 | Validation and safety | Preflight 5/6; secure behavior 5/6; destructive guardrails 4/5; check/diff 2/3 | 16/20 |
 | Convergence and recovery | Idempotence 4/5; transitions 2/4; operational recovery 2/4 | 8/13 |
-| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 1/3; CI enforcement 1/1 | 18/25 |
+| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 2/3; CI enforcement 1/1 | 19/25 |
 | Documentation and release hygiene | Operator docs 4/4; test/limitations 2/2; contribution contract 2/2; metadata 2/2 | 10/10 |
 
-**Total: 78/100 (rounded down); score-based and final state: Beta.** The role
+**Total: 80/100 (rounded down); score-based and final state: Beta.** The role
 has substantial blueprint validation, guarded resource removal, configuration
 rollback, and Rocky functional/idempotence coverage. It is not an RC: check/diff
-behavior and some recovery/transition paths lack adequate evidence, and the
-supported RHEL 9/10 KVM scenario is configured but has not been run at this ref.
-Therefore RHEL lifecycle and SELinux behavior remain unverified. The current
-assessment ran the transaction guard test, syntax check, and production-profile
-lint successfully; it did not run Molecule or KVM. See [TESTING.md](TESTING.md)
-for test boundaries and requirements.
+behavior and some recovery/transition paths lack adequate evidence. Support is
+now intentionally limited to Rocky Linux 9 and 10; Red Hat Enterprise Linux is
+not supported. Existing automated Rocky coverage is configured, while Rocky 10
+and lifecycle jobs are scheduled rather than PR checks.
+This assessment is for the working tree on `fix/kvm-molecule-schema`; no Molecule
+or KVM tests were run for this change. See [TESTING.md](TESTING.md) for coverage.
 
 ## Compatibility and releases
 
@@ -48,7 +48,7 @@ Overview
 ========
 
 This Ansible role provides a declarative way to install and manage Dovecot on
-RHEL-compatible systems. It manages the Dovecot package and service lifecycle,
+Rocky Linux systems. It manages the Dovecot package and service lifecycle,
 generates the main service configuration, and can maintain supporting host
 resources such as directories, files, bind mounts, cron jobs, and Git working
 trees.
@@ -66,7 +66,6 @@ reimplement the underlying Ansible task flow.
 
 Supported target operating systems:
 
-- Red Hat Enterprise Linux 9 and 10
 - Rocky Linux 9 and 10
 
 Supporting host resources are implemented through the shared task library
@@ -163,8 +162,6 @@ Requirements
 ------------
 
 - Operating system
-  - Red Hat Enterprise Linux 9
-  - Red Hat Enterprise Linux 10
   - Rocky Linux 9
   - Rocky Linux 10
 

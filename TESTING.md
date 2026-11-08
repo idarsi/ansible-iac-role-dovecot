@@ -1,9 +1,9 @@
 # Testing
 
-This role uses Molecule with Podman for routine integration tests and includes
-a KVM scenario for RHEL SELinux and host behavior. Rocky coverage uses
-containers; RHEL is tested only in licensed RHEL guests, never inferred from
-UBI images. Neither backend covers the entire supported-OS claim yet.
+This role uses Molecule with Podman for Rocky Linux integration tests. The only
+currently supported operating systems are Rocky Linux 9 and 10. Container tests
+cover application behavior; they do not provide evidence for SELinux-specific
+host behavior.
 
 The dependency-free local guard test checks the rollback task structure for
 changed live configuration, changed `.previous` content or metadata, marker
@@ -28,31 +28,6 @@ Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman 
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
 Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
-RHEL 9 and 10 KVM guests | Shared `idarsi-ansible-test-environments` KVM backend; entitled Dovecot package repositories | `kvm` (manual; not run) | SELinux-enforcing install, `getenforce`, `matchpathcon -V`, `doveconf -n`, uninstall, repeated removal, and unmanaged configuration preservation
-
-The role's `kvm` scenario boots genuine RHEL 9 and 10 guests using the shared KVM
-create/destroy playbooks and a Kickstart that explicitly enforces SELinux.
-While Dovecot is installed it checks runtime `getenforce`, verifies the managed
-configuration's default SELinux label with `matchpathcon -V`, and runs
-`doveconf -n`. It asserts installation/service/configuration, invokes
-`uninstall` repeatedly, and verifies package/service/owned-configuration removal
-and unmanaged-configuration preservation. It does not validate mail-data labels
-or prove absence of AVC denials. It is configured but has not been run;
-successful RHEL lifecycle/SELinux coverage is not claimed until a run passes.
-Run it with the shared environment's KVM profile active and
-`IDARSI_TEST_ENVIRONMENT` pointing to that checkout:
-`molecule test -s kvm`. Setup requires the shared `idarsi-test` libvirt
-network/base-image pool, readable RHEL 9 and 10 installation ISOs (or valid
-cached base images), hardware KVM, and guest access to entitled RHEL
-repositories so the role can install Dovecot. The shared tooling discovers
-RHEL ISOs named `rhel-9[.minor]-x86_64-dvd.iso` and
-`rhel-10[.minor]-x86_64-dvd.iso` as the corresponding RHEL9/RHEL10 source
-variables. Subscription registration and credentials are deliberately not
-embedded in the scenario; operators must configure guest repository access
-securely. Both RHEL 9 and 10 source variables must resolve to valid installation sources
-for the complete two-platform scenario. This run was not attempted during this
-change; entitlement, ISO/cache availability, and hardware KVM access were not
-confirmed.
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
@@ -167,11 +142,9 @@ production-profile lint, validation, the Rocky Linux 9 `default` baseline, and
 dispatchable and runs that same fast set. A scheduled run occurs every
 Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default`,
 `rocky10`, `global_absent`, and `lifecycle` baseline jobs in parallel. The scheduled workflow is manually
-dispatchable and runs the same quality and baseline jobs. No GitHub Actions
-job claims RHEL execution; RHEL 9
-and 10 remain supported targets but are not automatically tested because the
-public UBI images do not provide the Dovecot package without entitled RHEL
-repositories.
+dispatchable and runs the same quality and baseline jobs. The automated
+platform matrix is limited to Rocky Linux 9 and 10. No RHEL coverage or support
+is claimed.
 
 ## Scenario coverage
 
@@ -241,8 +214,10 @@ repositories.
 The `global_absent` scenario first installs Dovecot and creates an unmanaged
 configuration fixture, then runs `absent` twice. It asserts the package stays
 absent, the service is not running, and the unmanaged configuration remains
-unchanged after the second call. The `lifecycle` scenario tests full install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers; `kvm` retains corresponding RHEL 9 and 10 lifecycle coverage. Check-mode and diff-mode behavior remain
-untested. The current scenarios do not test SELinux-specific shared filesystem
+unchanged after the second call. The `lifecycle` scenario tests full
+install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers. RHEL
+KVM coverage was removed with RHEL support. Check-mode and diff-mode behavior
+remain untested. The current scenarios do not test SELinux-specific shared filesystem
 records or remote
 Git authentication. The `global_absent` scenario covers transaction-artifact
 cleanup and shared cron entry-level behavior for those states, without
@@ -264,19 +239,6 @@ molecule test -s rocky10
 molecule test -s cron_absent
 molecule test -s global_absent
 molecule test -s lifecycle
-```
-
-Run the manual RHEL KVM scenario separately, only after satisfying its
-environment, RHEL installation-source, entitlement, and hardware prerequisites
-above:
-
-> **Destructive test warning:** This scenario provisions disposable KVM VMs.
-> Its Kickstart runs `clearpart --all --initlabel --drives=vda`, wiping and
-> repartitioning the guest's `vda` disk. Never point this scenario at a
-> production or shared VM.
-
-```bash
-molecule test -s kvm
 ```
 
 The validation, default, and `cron_absent` commands are pull-request coverage;
