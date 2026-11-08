@@ -1,15 +1,12 @@
-> **Maturity State: Beta**
->
+> **Maturity State: Beta**<br>
 > **RC Readiness: 78%**
 
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
 Assessment basis: branch `fix/kvm-molecule-schema`, commit
-`5c8685e402994b73e5caf53497e76b5a1f44bc44`, with the current working tree
-(including the uncommitted `molecule/kvm/molecule.yml` schema compatibility
-change). The `tasks/shared` submodule is initialized at `d70d58e` and remains a
-required dependency.
+`ad220f07c1a31db5bef924189b02458f732b85ea`. The `tasks/shared` submodule is
+initialized at `d70d58e` and remains a required dependency.
 
 Scorecard (criterion points / maximum):
 
@@ -24,14 +21,13 @@ Scorecard (criterion points / maximum):
 
 **Total: 78/100 (rounded down); score-based and final state: Beta.** The role
 has substantial blueprint validation, guarded resource removal, configuration
-rollback, and Rocky functional/idempotence coverage. It is not an RC: recovery
-interruption and check/diff behavior lack adequate tests, and supported RHEL
-execution is unverified. The KVM schema compatibility change now passes syntax,
-but `molecule test -s kvm` fails on both RHEL guests because the Dovecot package
-is unavailable (`no package dovecot`). The same package failure occurred in the
-previous current/next runs. This is a test-environment/package-availability
-failure, not successful lifecycle evidence; RHEL lifecycle and SELinux behavior
-remain unverified. See [TESTING.md](TESTING.md) for the test boundaries.
+rollback, and Rocky functional/idempotence coverage. It is not an RC: check/diff
+behavior and some recovery/transition paths lack adequate evidence, and the
+supported RHEL 9/10 KVM scenario is configured but has not been run at this ref.
+Therefore RHEL lifecycle and SELinux behavior remain unverified. The current
+assessment ran the transaction guard test, syntax check, and production-profile
+lint successfully; it did not run Molecule or KVM. See [TESTING.md](TESTING.md)
+for test boundaries and requirements.
 
 ## Compatibility and releases
 
