@@ -146,9 +146,9 @@
           - dovecot_validation_final_config.stat.exists == dovecot_validation_initial_config_exists
           - dovecot_validation_final_config.stat.isreg | default(false) == dovecot_validation_initial_config_type
           - dovecot_validation_final_config.stat.mode | default('') == dovecot_validation_initial_config_mode
-          - dovecot_validation_final_config.stat.uid | default(-1) == dovecot_validation_initial_config_uid
-          - dovecot_validation_final_config.stat.gid | default(-1) == dovecot_validation_initial_config_gid
-          - dovecot_validation_final_config.stat.size | default(-1) == dovecot_validation_initial_config_size
+          - (dovecot_validation_final_config.stat.uid | default(-1) | int) == (dovecot_validation_initial_config_uid | int)
+          - (dovecot_validation_final_config.stat.gid | default(-1) | int) == (dovecot_validation_initial_config_gid | int)
+          - (dovecot_validation_final_config.stat.size | default(-1) | int) == (dovecot_validation_initial_config_size | int)
           - >-
             not dovecot_validation_initial_config_exists or
             dovecot_validation_final_config_content.content == dovecot_validation_initial_config_content_value

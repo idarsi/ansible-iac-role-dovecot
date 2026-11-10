@@ -20,6 +20,15 @@ plaintext/TLS security policy.
 
 ## Automated test matrix
 
+The declared minimum is ansible-core 2.15.13, with local validation evidence
+limited to the `validation` scenario: `molecule test -s validation` passed in
+the shared `ansible-min` environment (ansible-core 2.15.13, Molecule 6.0.3,
+and Podman plugin 23.5.0). This exercises the validation-state runtime and its
+guardrails, not installation, lifecycle, or other role states on 2.15.13. CI
+continues to use ansible-core 2.21.3 and does not enforce the declared minimum
+version. These results do not establish comprehensive runtime support across
+all role states on ansible-core 2.15.13.
+
 Platform/image               | Ansible or application versions | Molecule scenarios | Main coverage
 -----------------------------|---------------------------------|--------------------|--------------
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `default` | Dovecot installation, configuration, service startup, shared filesystem resources, bind migration, cron, and local Git checkout

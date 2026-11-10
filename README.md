@@ -4,9 +4,17 @@
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-Assessment basis: working tree on branch `fix/kvm-molecule-schema` after the
-RHEL support removal. The `tasks/shared` submodule is
-initialized at `d70d58e` and remains a required dependency.
+Assessment basis: working tree on branch `fix/kvm-molecule-schema`, based on
+commit `22cfbb3e7e4b4cb9c3de354b19920dac20b1db4f`, including the current
+uncommitted changes to `meta/main.yml`, `molecule/validation/verify.yml`, and
+`TESTING.md`. The `tasks/shared` submodule is initialized at `d70d58e` and
+remains a required dependency. `molecule test -s validation` passed locally
+with ansible-core 2.15.13, Molecule 6.0.3, and Podman plugin 23.5.0; this is
+runtime evidence for the validation scenario only, not other states or
+lifecycle behavior. CI uses ansible-core 2.21.3 and does not enforce the
+declared minimum. The 80% score is unchanged: this scoped evidence does not
+establish comprehensive runtime support on ansible-core 2.15.13 or close the
+existing testing and recovery gaps.
 
 Scorecard (criterion points / maximum):
 
@@ -26,8 +34,7 @@ behavior and some recovery/transition paths lack adequate evidence. Support is
 now intentionally limited to Rocky Linux 9 and 10; Red Hat Enterprise Linux is
 not supported. Existing automated Rocky coverage is configured, while Rocky 10
 and lifecycle jobs are scheduled rather than PR checks.
-This assessment is for the working tree on `fix/kvm-molecule-schema`; no Molecule
-or KVM tests were run for this change. See [TESTING.md](TESTING.md) for coverage.
+See [TESTING.md](TESTING.md) for coverage and its runtime-validation limits.
 
 ## Compatibility and releases
 
