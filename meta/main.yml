@@ -5,7 +5,7 @@ galaxy_info:
   author: "Arsi Atomi"
   description: "Install and manage Dovecot on Rocky Linux."
   license: "MIT"
-  min_ansible_version: "2.15.13"
+  min_ansible_version: "2.19.0"
   platforms:
     - name: Rocky
       versions: ["9", "10"]

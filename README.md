@@ -10,9 +10,10 @@ uncommitted changes to `meta/main.yml`, `molecule/validation/verify.yml`, and
 `TESTING.md`. The `tasks/shared` submodule is initialized at `d70d58e` and
 remains a required dependency. `molecule test -s validation` passed locally
 with ansible-core 2.15.13, Molecule 6.0.3, and Podman plugin 23.5.0; this is
-runtime evidence for the validation scenario only, not other states or
-lifecycle behavior. CI uses ansible-core 2.21.3 and does not enforce the
-declared minimum. The 80% score is unchanged: this scoped evidence does not
+targeted runtime evidence for the validation scenario only, not role-wide
+support or evidence for other states and lifecycle behavior. The declared
+minimum remains ansible-core 2.19.0. CI uses ansible-core 2.21.3 and does not
+enforce that minimum. The 80% score is unchanged: this scoped evidence does not
 establish comprehensive runtime support on ansible-core 2.15.13 or close the
 existing testing and recovery gaps.
 
