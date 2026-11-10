@@ -1,31 +1,33 @@
+> **Maturity State: Beta**<br>
+> **RC Readiness: 80%**
+
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-> **Maturity State: Beta**<br>
-> **RC Readiness: 78%**
+Assessment basis: working tree on branch `fix/kvm-molecule-schema` after the
+RHEL support removal. The `tasks/shared` submodule is
+initialized at `d70d58e` and remains a required dependency.
 
-Assessment ref: `update/dovecot-state-docs` (working tree, based on `24ad003`). The
-`tasks/shared` submodule is a required dependency and must be checked out
-recursively.
+Scorecard (criterion points / maximum):
 
-This evidence-based score is not a claim of complete release-candidate
-verification:
+| Category | Criterion scores | Subtotal |
+| --- | --- | ---: |
+| Scope and public contract | Purpose 3/3; inputs/states 4/5; support 4/4 | 11/12 |
+| Functional completeness | Core convergence 7/8; lifecycle 5/6; platform/dependencies 2/3; failure/rerun 2/3 | 16/20 |
+| Validation and safety | Preflight 5/6; secure behavior 5/6; destructive guardrails 4/5; check/diff 2/3 | 16/20 |
+| Convergence and recovery | Idempotence 4/5; transitions 2/4; operational recovery 2/4 | 8/13 |
+| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 2/3; CI enforcement 1/1 | 19/25 |
+| Documentation and release hygiene | Operator docs 4/4; test/limitations 2/2; contribution contract 2/2; metadata 2/2 | 10/10 |
 
-| Category | Evidence | Status |
-| --- | --- | --- |
-| Contract and validation | Explicit states, blueprint validation, and fail-closed guards | Complete |
-| Convergence and security | Candidate validation, guarded configuration rollback, ownership markers | Partial |
-| Documentation | Supported platforms, states, risks, and test limitations documented | Complete |
-| Automated evidence | Validation, functional and lifecycle scenarios exist; RHEL KVM scenario is configured but unrun | Partial |
-
-The assessment scores scope/contract 10/12, functional completeness 16/20,
-validation and safety 16/20, convergence and recovery 8/13, automated testing
-18/25, and documentation/release hygiene 10/10 (78% total). The role remains
-Beta because RHEL execution, recovery interruption tests, check/diff coverage,
-and platform-matrix evidence remain outstanding. The RHEL KVM scenario is
-reproducible coverage configuration, not evidence of a successful run. Full
-RC blockers include unverified RHEL 9/10 execution and incomplete automated
-recovery/check-mode evidence; see [TESTING.md](TESTING.md).
+**Total: 80/100 (rounded down); score-based and final state: Beta.** The role
+has substantial blueprint validation, guarded resource removal, configuration
+rollback, and Rocky functional/idempotence coverage. It is not an RC: check/diff
+behavior and some recovery/transition paths lack adequate evidence. Support is
+now intentionally limited to Rocky Linux 9 and 10; Red Hat Enterprise Linux is
+not supported. Existing automated Rocky coverage is configured, while Rocky 10
+and lifecycle jobs are scheduled rather than PR checks.
+This assessment is for the working tree on `fix/kvm-molecule-schema`; no Molecule
+or KVM tests were run for this change. See [TESTING.md](TESTING.md) for coverage.
 
 ## Compatibility and releases
 
@@ -46,7 +48,7 @@ Overview
 ========
 
 This Ansible role provides a declarative way to install and manage Dovecot on
-RHEL-compatible systems. It manages the Dovecot package and service lifecycle,
+Rocky Linux systems. It manages the Dovecot package and service lifecycle,
 generates the main service configuration, and can maintain supporting host
 resources such as directories, files, bind mounts, cron jobs, and Git working
 trees.
@@ -64,7 +66,6 @@ reimplement the underlying Ansible task flow.
 
 Supported target operating systems:
 
-- Red Hat Enterprise Linux 9 and 10
 - Rocky Linux 9 and 10
 
 Supporting host resources are implemented through the shared task library
@@ -161,8 +162,6 @@ Requirements
 ------------
 
 - Operating system
-  - Red Hat Enterprise Linux 9
-  - Red Hat Enterprise Linux 10
   - Rocky Linux 9
   - Rocky Linux 10
 

@@ -3,7 +3,7 @@
 ## Development
 
 Preserve the documented `iac_blueprint.dovecot` API and validate changes
-against the supported Rocky Linux and RHEL 9/10 targets. Keep role behavior
+against the supported Rocky Linux 9/10 targets. Keep role behavior
 idempotent, fail closed for destructive operations, and update `README.md` and
 `TESTING.md` when states, support, prerequisites, or coverage change.
 
