@@ -4,18 +4,14 @@
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-Assessment basis: working tree on branch `fix/kvm-molecule-schema`, based on
-commit `22cfbb3e7e4b4cb9c3de354b19920dac20b1db4f`, including the current
-uncommitted changes to `meta/main.yml`, `molecule/validation/verify.yml`, and
-`TESTING.md`. The `tasks/shared` submodule is initialized at `d70d58e` and
-remains a required dependency. `molecule test -s validation` passed locally
-with ansible-core 2.15.13, Molecule 6.0.3, and Podman plugin 23.5.0; this is
-targeted runtime evidence for the validation scenario only, not role-wide
-support or evidence for other states and lifecycle behavior. The declared
-minimum remains ansible-core 2.19.0. CI uses ansible-core 2.21.3 and does not
-enforce that minimum. The 80% score is unchanged: this scoped evidence does not
-establish comprehensive runtime support on ansible-core 2.15.13 or close the
-existing testing and recovery gaps.
+Assessment basis: commit `8a2a064587bb1b555b74cc18f79b175dce3c7f9c` on branch
+`update/dovecot-ansible-215`. The `tasks/shared` submodule is initialized at
+`d70d58e` and remains a required dependency. The declared minimum is ansible-core
+2.19.0; CI uses ansible-core 2.21.3 and does not enforce the declared minimum.
+The 80% score reflects the implemented validation, guarded cleanup, configuration
+rollback, and Rocky Linux 9/10 test coverage, while check/diff behavior, some
+recovery/transition paths, and runtime verification at the declared minimum
+remain incomplete or lack evidence. No production-readiness review is recorded.
 
 Scorecard (criterion points / maximum):
 
@@ -35,7 +31,10 @@ behavior and some recovery/transition paths lack adequate evidence. Support is
 now intentionally limited to Rocky Linux 9 and 10; Red Hat Enterprise Linux is
 not supported. Existing automated Rocky coverage is configured, while Rocky 10
 and lifecycle jobs are scheduled rather than PR checks.
-See [TESTING.md](TESTING.md) for coverage and its runtime-validation limits.
+The smallest readiness gains are reproducible check/diff-mode tests, broader
+failure/recovery and transition tests, and CI evidence for the declared minimum
+Ansible version. See [TESTING.md](TESTING.md) for coverage and runtime-validation
+limits.
 
 ## Compatibility and releases
 
