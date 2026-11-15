@@ -1,3 +1,0 @@
----
-- name: "Verify Rocky Linux 10 baseline"
-  import_playbook: ../default/verify.yml

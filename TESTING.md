@@ -21,8 +21,8 @@ plaintext/TLS security policy.
 ## Automated test matrix
 
 The declared minimum is ansible-core 2.19.0. Additional compatibility evidence
-on ansible-core 2.15.13 is limited to the `validation` scenario:
-`molecule test -s validation` passed in
+on ansible-core 2.15.13 is limited to the `podman-validation` scenario:
+`molecule test -s podman-validation` passed in
 the shared `ansible-min` environment (ansible-core 2.15.13, Molecule 6.0.3,
 and Podman plugin 23.5.0). This exercises the validation-state runtime and its
 guardrails, not installation, lifecycle, or other role states on 2.15.13. This
@@ -31,23 +31,23 @@ to use ansible-core 2.21.3 and does not enforce the declared minimum version.
 
 Platform/image               | Ansible or application versions | Molecule scenarios | Main coverage
 -----------------------------|---------------------------------|--------------------|--------------
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `default` | Dovecot installation, configuration, service startup, shared filesystem resources, bind migration, cron, and local Git checkout
-Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `rocky10` | Same Dovecot and shared-task coverage on Rocky Linux 10 UBI
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
-Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
-Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-default` | Dovecot installation, configuration, service startup, shared filesystem resources, bind migration, cron, and local Git checkout
+Rocky Linux 10 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-rocky10` | Same Dovecot and shared-task coverage on Rocky Linux 10 UBI
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; validation role path | `podman-validation` | Validation success plus invalid bind, TLS, proxy, configuration-path, destructive-path, and symlink-purge guardrails without installation
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
+Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
+Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
-`global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
+`podman-global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
 and transaction artifacts are expected to fail closed and remain present. The
-default scenario runs only the normal Dovecot baseline and second-convergence
+`podman-default` scenario runs only the normal Dovecot baseline and second-convergence
 idempotence check during converge. Its three test-only configuration transaction
 and recovery plays run in verify, after idempotence, so their intentional state
 mutations cannot contaminate the baseline idempotence check. It does not run
 destructive lifecycle states.
 Preflight validation covers destructive path scope, explicit bind purge opt-in,
-and managed configuration-path guardrails. The validation scenario covers
+and managed configuration-path guardrails. The `podman-validation` scenario covers
 required TLS credentials, equal bind paths, unsafe cleanup paths, and rejected
 configuration-tree overrides. Its verify phase compares package, service,
 fstab, fixture, and generated-configuration state to ensure the validation
@@ -58,8 +58,8 @@ duplicate or mismatched fstab entries, and rejects symlink purge sources. The
 minimal validation input includes an absent cron record with only `name`,
 `cron_file`, and `state`, preserving the documented removal form. Host-state
 cron guardrails are intentionally excluded from this validation-state
-scenario; they run in `cron_absent`. Full Dovecot absent/uninstall convergence is not
-part of this lightweight validation scenario. `global_absent` checks removal
+scenario; they run in `podman-cron_absent`. Full Dovecot absent/uninstall convergence is not
+part of this lightweight `podman-validation` scenario. `podman-global_absent` checks removal
 of owned transaction artifacts and cron entries, but not complete teardown
 from a converged installation or package removal. Runtime interruption/recovery
 and check-mode/diff-mode behavior also remain gaps; the dependency-free guard
@@ -98,8 +98,8 @@ published `containers.podman` 1.20.2 release. That release declares
 `requires_ansible: ">=2.8"`, so it is compatible with ansible-core 2.21.3.
 The published-release metadata was checked at the Galaxy API endpoint
 `https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index/containers/podman/versions/1.20.2/`.
-The pull-request `validation` job and scheduled `validation` job install
-`molecule/default/collections.yml`. The pull-request baseline job installs the
+The pull-request `podman-validation` job and scheduled `podman-validation` job install
+`molecule/podman-default/collections.yml`. The pull-request baseline job installs the
 default manifest, while each scheduled baseline matrix job installs the
 manifest for its selected scenario. The syntax/lint (`quality`) jobs do not
 install collections because they do not execute collection modules. The
@@ -116,13 +116,12 @@ this role's scope. Role-local tasks, documentation examples, and Molecule
 scenarios remain linted. This does not claim that the complete repository,
 including the external submodule, is lint-clean.
 
-The shared local environment at
-`/home/arsi/.local/share/venvs/idarsi-ansible-testing` is not created or
+The shared local environment (for example, `<shared-venv>`) is not created or
 modified by this repository. Its verified Python tools are ansible-core 2.21.3,
 Molecule 26.8.0, Molecule Podman plugin 26.7.15, and ansible-lint 26.8.0.
 However, its collection search path lists the user collection directory
-`/home/arsi/.ansible/collections` before the environment site-packages
-directory. That user-level directory contains `containers.podman` 1.8.1 and
+`<user-collection-directory>` before the environment site-packages
+directory. The user-level collection directory contains `containers.podman` 1.8.1 and
 therefore shadows the environment's 1.20.2 copy. Local runs must be treated as
 using `containers.podman` 1.8.1 unless the effective collection path is checked;
 the shared environment is not a reproduction of CI's collection selection.
@@ -146,31 +145,31 @@ shared checkout nor the shared test environment is modified to work around
 that portability limitation.
 
 Pull requests run the dependency-free transaction guard check, syntax,
-production-profile lint, validation, the Rocky Linux 9 `default` baseline, and
-`cron_absent`. The pull-request workflow is also manually
+production-profile lint, validation, the Rocky Linux 9 `podman-default` baseline, and
+`podman-cron_absent`. The pull-request workflow is also manually
 dispatchable and runs that same fast set. A scheduled run occurs every
-Saturday at 03:17 UTC and runs syntax/lint, validation, and the `default`,
-`rocky10`, `global_absent`, and `lifecycle` baseline jobs in parallel. The scheduled workflow is manually
+Saturday at 03:17 UTC and runs syntax/lint, validation, and the `podman-default`,
+`podman-rocky10`, `podman-global_absent`, and `podman-lifecycle` baseline jobs in parallel. The scheduled workflow is manually
 dispatchable and runs the same quality and baseline jobs. The automated
 platform matrix is limited to Rocky Linux 9 and 10. No RHEL coverage or support
 is claimed.
 
 ## Scenario coverage
 
-- `molecule/default` and `molecule/rocky10` validate that the role installs the
+- `molecule/podman-default` and `molecule/podman-rocky10` validate that the role installs the
   Dovecot package,
   writes the generated configuration, and starts the Dovecot service.
-- `molecule/default` is limited to the normal Dovecot baseline convergence and
+- `molecule/podman-default` is limited to the normal Dovecot baseline convergence and
   verifies the present cron file, restrictive ownership markers, managed
   configuration permissions, and absence of the transactional candidate after
   convergence. Molecule's idempotence phase covers the unchanged second run;
   it does not run destructive lifecycle states.
-- `molecule/validation` runs `state: validate` for a minimal blueprint and
+- `molecule/podman-validation` runs `state: validate` for a minimal blueprint and
   asserts actionable failures for equal bind paths, incomplete TLS, invalid
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
   configuration-directory/path overrides. It
   also verifies that validation does not create the managed configuration file.
-- The `default` and `rocky10` scenarios share the same converge and verify
+- The `podman-default` and `podman-rocky10` scenarios share the same converge and verify
   playbooks. Each platform validates the shared filesystem wrappers by
   creating a managed directory and an inline-content file, then checking their
   existence and file content.
@@ -180,21 +179,21 @@ is claimed.
   `/etc/fstab` entry.
 - The cron fixture verifies that the shared cron wrapper creates
   `/etc/cron.d/dovecot_heartbeat` with the expected command and that the role
-  creates its restrictive ownership marker. The default converge has no absent
+  creates its restrictive ownership marker. The `podman-default` converge has no absent
   cron declaration, so its idempotence run remains stable.
-- `molecule/validation` rejects duplicate/conflicting `cron_file` declarations
+- `molecule/podman-validation` rejects duplicate/conflicting `cron_file` declarations
   using `state: validate` without host-state cron operations.
-- `molecule/validation` also checks the protected `extra_parameters` rejection
+- `molecule/podman-validation` also checks the protected `extra_parameters` rejection
   message and newline-injection guard. Configuration rollback on a failed live
   Dovecot validation is fail-closed by task structure, but is not exercised in
   the validation-only container because it has no live configuration tree. The
-   forced systemd reload-failure path is exercised in `molecule/default` with a
+   forced systemd reload-failure path is exercised in `molecule/podman-default` with a
    test-only one-shot override and verifies restoration of the exact pre-run
    configuration and marker. A later resource failure is intentionally not a
    full transaction: filesystem, Git, cron, bind, and service changes are not
    destructively rolled back. This residual behavior is documented and must be
    checked by operators after a failed convergence.
-- `molecule/global_absent` exercises global `absent` and `uninstall` with
+- `molecule/podman-global_absent` exercises global `absent` and `uninstall` with
   disposable unmarked cron files, verifying shared entry-level removal
   preserves unrelated entries instead of deleting the whole file. It also
   verifies stale managed configuration, `.candidate`, and `.previous`
@@ -203,7 +202,7 @@ is claimed.
   Dovecot, preserve an unmanaged configuration fixture through two absent runs,
   and verify the package remains absent and service stopped after the fresh
   second invocation. A repeated cron invocation also checks record isolation.
-- `molecule/cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
+- `molecule/podman-cron_absent` runs in a fresh Rocky Linux 9 container and verifies an
   explicit absent cron record removes its marked file while leaving the `cronie`
   package state unchanged; it also verifies that a role-managed file deleted
   externally is recreated and its manifest refreshed. Its guardrail tests
@@ -220,15 +219,15 @@ is claimed.
   file, package, active service, shared resources, bind state, cron file, and
   Git checkout.
 
-The `global_absent` scenario first installs Dovecot and creates an unmanaged
+The `podman-global_absent` scenario first installs Dovecot and creates an unmanaged
 configuration fixture, then runs `absent` twice. It asserts the package stays
 absent, the service is not running, and the unmanaged configuration remains
-unchanged after the second call. The `lifecycle` scenario tests full
+unchanged after the second call. The `podman-lifecycle` scenario tests full
 install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers. RHEL
 KVM coverage was removed with RHEL support. Check-mode and diff-mode behavior
 remain untested. The current scenarios do not test SELinux-specific shared filesystem
 records or remote
-Git authentication. The `global_absent` scenario covers transaction-artifact
+Git authentication. The `podman-global_absent` scenario covers transaction-artifact
 cleanup and shared cron entry-level behavior for those states, without
 installing or removing a complete Dovecot package lifecycle.
 
@@ -242,17 +241,17 @@ python tests/test_transaction_guards.py
 ANSIBLE_ROLES_PATH=".." ansible-playbook --syntax-check \
   -i docs/inventory-example.yml docs/playbook-example.yml
 ANSIBLE_ROLES_PATH=".." ansible-lint --profile production
-molecule test -s validation
-molecule test -s default
-molecule test -s rocky10
-molecule test -s cron_absent
-molecule test -s global_absent
-molecule test -s lifecycle
+molecule test -s podman-validation
+molecule test -s podman-default
+molecule test -s podman-rocky10
+molecule test -s podman-cron_absent
+molecule test -s podman-global_absent
+molecule test -s podman-lifecycle
 ```
 
-The validation, default, and `cron_absent` commands are pull-request coverage;
-the Rocky Linux 10, `global_absent`, and `lifecycle` commands are
-scheduled/manual coverage. The lifecycle scenario has passed on Rocky Linux 9
+The `podman-validation`, `podman-default`, and `podman-cron_absent` commands are pull-request coverage;
+the Rocky Linux 10, `podman-global_absent`, and `podman-lifecycle` commands are
+scheduled/manual coverage. The `podman-lifecycle` scenario has passed on Rocky Linux 9
 and 10; it is scheduled rather than run on pull requests.
 The workflows install the shared task dependency from
 the recursive submodule checkout and use `ansible-galaxy collection install`
@@ -261,13 +260,13 @@ with the manifest belonging to each selected scenario.
 Run one scenario from the role directory:
 
 ```bash
-molecule test -s default
+molecule test -s podman-default
 ```
 
 Run the complete current matrix:
 
 ```bash
-for scenario in default rocky10 validation cron_absent global_absent lifecycle; do
+for scenario in podman-default podman-rocky10 podman-validation podman-cron_absent podman-global_absent podman-lifecycle; do
   molecule test -s "$scenario" || exit 1
 done
 ```
@@ -275,19 +274,19 @@ done
 Run individual Molecule phases while developing:
 
 ```bash
-molecule syntax -s default
-molecule converge -s default
-molecule verify -s default
+molecule syntax -s podman-default
+molecule converge -s podman-default
+molecule verify -s podman-default
 ```
 
-The same commands accept `rocky10` or `validation` as the scenario.
+The same commands accept `podman-rocky10` or `podman-validation` as the scenario.
 
 Clean up the container explicitly when needed:
 
 ```bash
-molecule destroy -s default
+molecule destroy -s podman-default
 ```
 
 The scenario requires Podman, Ansible, Molecule, the Podman Molecule driver,
-and the collections listed in `molecule/default/collections.yml`. The role
+and the collections listed in `molecule/podman-default/collections.yml`. The role
 uses `ansible.builtin.*` modules at runtime.

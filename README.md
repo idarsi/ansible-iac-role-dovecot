@@ -1,17 +1,19 @@
 > **Maturity State: Beta**<br>
-> **RC Readiness: 80%**
+> **RC Readiness: 78%**
 
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-Assessment basis: commit `8a2a064587bb1b555b74cc18f79b175dce3c7f9c` on branch
-`update/dovecot-ansible-215`. The `tasks/shared` submodule is initialized at
-`d70d58e` and remains a required dependency. The declared minimum is ansible-core
-2.19.0; CI uses ansible-core 2.21.3 and does not enforce the declared minimum.
-The 80% score reflects the implemented validation, guarded cleanup, configuration
-rollback, and Rocky Linux 9/10 test coverage, while check/diff behavior, some
-recovery/transition paths, and runtime verification at the declared minimum
-remain incomplete or lack evidence. No production-readiness review is recorded.
+Assessment basis: commit `ecce058a86b468b2e0ba21aff56fa7e672ccbc54` on branch
+`update/podman-prefixed-molecule-scenarios`, with the current working-tree
+scenario renames and workflow updates included. The `tasks/shared` submodule is
+initialized at `d70d58e` and remains a required dependency. The declared minimum
+is ansible-core 2.19.0; CI uses ansible-core 2.21.3 and does not enforce the
+declared minimum. The 78% score reflects the implemented validation, guarded
+cleanup, configuration rollback, and Rocky Linux 9/10 test coverage, while
+check/diff behavior, some recovery/transition paths, and runtime verification
+at the declared minimum remain incomplete or lack evidence. No
+production-readiness review is recorded.
 
 Scorecard (criterion points / maximum):
 
@@ -21,10 +23,10 @@ Scorecard (criterion points / maximum):
 | Functional completeness | Core convergence 7/8; lifecycle 5/6; platform/dependencies 2/3; failure/rerun 2/3 | 16/20 |
 | Validation and safety | Preflight 5/6; secure behavior 5/6; destructive guardrails 4/5; check/diff 2/3 | 16/20 |
 | Convergence and recovery | Idempotence 4/5; transitions 2/4; operational recovery 2/4 | 8/13 |
-| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 2/3; CI enforcement 1/1 | 19/25 |
-| Documentation and release hygiene | Operator docs 4/4; test/limitations 2/2; contribution contract 2/2; metadata 2/2 | 10/10 |
+| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 2/3; CI enforcement 0.5/1 | 18.5/25 |
+| Documentation and release hygiene | Operator docs 4/4; test/limitations 1/2; contribution contract 2/2; metadata 2/2 | 9/10 |
 
-**Total: 80/100 (rounded down); score-based and final state: Beta.** The role
+**Total: 78.5/100 (rounded down); score-based and final state: Beta.** The role
 has substantial blueprint validation, guarded resource removal, configuration
 rollback, and Rocky functional/idempotence coverage. It is not an RC: check/diff
 behavior and some recovery/transition paths lack adequate evidence. Support is
@@ -408,7 +410,7 @@ git submodule update --init --recursive
 Testing
 -------
 
-The `default` and `rocky10` Molecule scenarios cover Dovecot installation and
+The `podman-default` and `podman-rocky10` Molecule scenarios cover Dovecot installation and
 configuration, shared filesystem resources, bind migration, cron jobs, and a
 local Git checkout on Rocky Linux 9 and 10. See [TESTING.md](TESTING.md) for
 the complete scenario coverage, current limitations, and test commands.
