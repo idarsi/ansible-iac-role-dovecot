@@ -1,6 +1,9 @@
 # Testing
 
-This role uses Molecule with Podman for Rocky Linux integration tests. The only
+This role uses Molecule with Podman for Rocky Linux integration tests. An
+experimental managed-KVM scenario has passed a supervised Rocky 9/10
+bind-migration run on `ansible-current`. It is not enabled in CI or the TUI;
+full runner acceptance, including concurrent and interrupted runs, is pending. The only
 currently supported operating systems are Rocky Linux 9 and 10. Container tests
 cover application behavior; they do not provide evidence for SELinux-specific
 host behavior.
@@ -21,12 +24,14 @@ plaintext/TLS security policy.
 ## Automated test matrix
 
 The declared minimum is ansible-core 2.19.0. Additional compatibility evidence
-on ansible-core 2.15.13 is limited to the `podman-validation` scenario:
+on ansible-core 2.15.13 includes `podman-validation` and `podman-default`:
 `molecule test -s podman-validation` passed in
 the shared `ansible-min` environment (ansible-core 2.15.13, Molecule 6.0.3,
-and Podman plugin 23.5.0). This exercises the validation-state runtime and its
-guardrails, not installation, lifecycle, or other role states on 2.15.13. This
-targeted result does not establish role-wide support on 2.15.13. CI continues
+and Podman plugin 23.5.0). The tester also ran `podman-default` successfully
+through converge, idempotence, verify, and destroy on `ansible-min` and
+`ansible-current` (ansible-core 2.20.8). These results exercise the baseline
+including bind migration and recovery, but not all role states on 2.15.13;
+they do not establish role-wide support on that line. CI continues
 to use ansible-core 2.21.3 and does not enforce the declared minimum version.
 
 Platform/image               | Ansible or application versions | Molecule scenarios | Main coverage
@@ -37,6 +42,7 @@ Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman 
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-cron_absent` (PR) | Fresh-container explicit absent cron removal with identity-bound marker and unchanged cronie package state
 Rocky Linux 9 UBI init image | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-global_absent` (scheduled) | Global absent/uninstall refusal and preservation of unowned configuration artifacts, plus cron entry-level removal
 Rocky Linux 9 and 10 UBI init images | CI: ansible-core 2.21.3, Molecule 26.8.0, Podman plugin 26.7.15; Dovecot distribution package | `podman-lifecycle` (scheduled) | Full install assertion followed by repeated uninstall; package/service/owned configuration removal and unmanaged fixture preservation
+Rocky Linux 9 and 10 KVM guests | Shared `ansible-current` (ansible-core 2.20.8); distribution Dovecot packages | `kvm-bind-migration` (experimental/manual; one successful supervised run) | Both guests passed converge, idempotence, bind migration/fstab, recovery, rollback, and destroy; `ansible-min`/`ansible-next` and runner concurrency/interruption acceptance pending
 
 Global cron `absent` and `uninstall` behavior is covered in the dedicated
 `podman-global_absent` scenario with disposable fixtures. Unowned Dovecot configuration
@@ -169,7 +175,7 @@ is claimed.
   proxy URL/port, unsafe destructive paths, symlink purge sources, and unsafe
   configuration-directory/path overrides. It
   also verifies that validation does not create the managed configuration file.
-- The `podman-default` and `podman-rocky10` scenarios share the same converge and verify
+- The `podman-default`, `podman-rocky10`, and experimental `kvm-bind-migration` scenarios share the same converge and verify
   playbooks. Each platform validates the shared filesystem wrappers by
   creating a managed directory and an inline-content file, then checking their
   existence and file content.
@@ -223,8 +229,11 @@ The `podman-global_absent` scenario first installs Dovecot and creates an unmana
 configuration fixture, then runs `absent` twice. It asserts the package stays
 absent, the service is not running, and the unmanaged configuration remains
 unchanged after the second call. The `podman-lifecycle` scenario tests full
-install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers. RHEL
-KVM coverage was removed with RHEL support. Check-mode and diff-mode behavior
+install-to-uninstall on Rocky Linux 9 and 10 Podman systemd containers.
+RHEL KVM coverage was removed with RHEL support. Experimental Rocky KVM bind
+coverage has one successful supervised `ansible-current` run; minimum/next
+lines and full runner concurrency/interruption acceptance remain pending.
+Check-mode and diff-mode behavior
 remain untested. The current scenarios do not test SELinux-specific shared filesystem
 records or remote
 Git authentication. The `podman-global_absent` scenario covers transaction-artifact
@@ -256,12 +265,55 @@ and 10; it is scheduled rather than run on pull requests.
 The workflows install the shared task dependency from
 the recursive submodule checkout and use `ansible-galaxy collection install`
 with the manifest belonging to each selected scenario.
+The `podman-default`, `podman-rocky10`, `podman-cron_absent`, and
+`podman-global_absent` scenarios install their Galaxy collections into their
+own Molecule ephemeral directory, not into the pinned shared environment.
+Ansible searches the inherited collection path first (the activated pinned
+lane locally, or `~/.ansible/collections` when unset in CI), then this private
+directory. These scenarios have no role Galaxy requirements; the removed empty
+`requirements.yml` files must not trigger a role install with the collection-
+only `--collections-path` option. The experimental managed KVM scenario uses
+the activated shared environment's pinned collections without installing
+scenario-specific collections.
 
 Run one scenario from the role directory:
 
 ```bash
 molecule test -s podman-default
 ```
+
+The experimental KVM bind-migration scenario uses the shared test environment's
+supervised managed create/destroy playbooks and Rocky 9/10 Kickstart template, with
+passwordless sudo inside each disposable VM. It points directly at the
+`podman-default` converge and verify playbooks: existing bind migration,
+fstab, resource-failure recovery, and configuration rollback assertions remain
+unchanged. The Podman scenarios retain their root-container behavior; only
+the KVM inventory opts into sudo and sets `iac_git_become_user: root`, since the
+shared Git task otherwise disables inherited privilege escalation for checkout.
+The scenario uses direct Rocky 9 and 10
+installation sources; they must be available for both guests. Unlike the legacy
+KVM launcher, managed mode does not automatically build or select cached base
+images. To use already prepared compatible qcow2 images instead, configure
+explicit `image_path` inputs for both platforms in place of their
+`install_source` and `kickstart` fields. See the shared environment's
+`docs/isolated-test-runs.md` for managed image requirements and
+`docs/kvm-molecule.md` for preparing sources and host readiness. With the shared
+`ansible-current` environment activated and the role submodule initialized,
+run the supervised invocation manually from the role directory:
+
+```bash
+"${IDARSI_TEST_ENVIRONMENT}/scripts/test-run" run --backend kvm --scenario kvm-bind-migration
+```
+
+Do not run this on the shared isolated Podman runner or add privileged,
+host-cgroup, or bind-mount capabilities to it. The tester's supervised
+`ansible-current` run passed on both Rocky 9 and 10 guests (converge,
+idempotence, bind/fstab, recovery, rollback, destroy); managed cleanup
+removed both guests for run `22ab93b5-9279-46f1-88bc-6a3023a15ead`.
+`ansible-min`, `ansible-next`, concurrent/interrupt runner acceptance, and
+explicit cached-image selection remain unverified. The scenario stays
+experimental and outside CI, the six-scenario automated Podman matrix, and
+the TUI.
 
 Run the complete current matrix:
 

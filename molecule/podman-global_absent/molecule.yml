@@ -1,6 +1,8 @@
 ---
 dependency:
   name: galaxy
+  options:
+    collections-path: "${MOLECULE_EPHEMERAL_DIRECTORY}/collections"
 
 driver:
   name: podman
@@ -19,6 +21,7 @@ platforms:
 provisioner:
   name: ansible
   env:
+    ANSIBLE_COLLECTIONS_PATH: "${ANSIBLE_COLLECTIONS_PATH:-~/.ansible/collections}:${MOLECULE_EPHEMERAL_DIRECTORY}/collections"
     ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
 
 verifier:
