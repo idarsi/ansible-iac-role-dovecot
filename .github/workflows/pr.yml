@@ -91,9 +91,9 @@ jobs:
             "molecule==26.8.0" \
             "molecule-plugins[podman]==26.7.15"
       - name: "Install required Ansible collections"
-        run: "ansible-galaxy collection install -r molecule/default/collections.yml"
+        run: "ansible-galaxy collection install -r molecule/podman-default/collections.yml"
       - name: "Run validation scenario"
-        run: "molecule test -s validation"
+        run: "molecule test -s podman-validation"
         env:
           ANSIBLE_ROLES_PATH: "${{ github.workspace }}/.."
 
@@ -104,7 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ["default", "cron_absent"]
+        scenario: ["podman-default", "podman-cron_absent"]
     steps:
       - name: "Check out repository and shared tasks"
         uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" # v4.2.2

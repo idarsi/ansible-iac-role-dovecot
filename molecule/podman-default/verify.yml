@@ -1,9 +1,9 @@
 ---
 - name: Verify
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
-    ansible_become_method: su
+    ansible_become_method: "{{ dovecot_molecule_become_method | default('su') }}"
     dovecot_config_path: "/etc/dovecot/conf.d/99-idarsi.conf"
     dovecot_shared_directory: "/tmp/dovecot-shared"
     dovecot_shared_file: "/tmp/dovecot-shared/example.txt"
@@ -251,7 +251,7 @@
 
 - name: "Verify invalid Dovecot configuration preserves the live file"
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "configuration_present"
     dovecot_invalid_configuration:
@@ -296,7 +296,7 @@
 
 - name: "Verify failed pre-configuration convergence is recoverable"
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "present"
     iac_blueprint:
@@ -353,7 +353,7 @@
 
 - name: "Exercise repeated direct configuration_present transactions"
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "configuration_present"
     dovecot_test_reload_counter_path: "/tmp/dovecot-direct-configuration-reload-counter"
@@ -416,9 +416,9 @@
 
 - name: Verify failed reload restores the true pre-run configuration
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
-    ansible_become_method: su
+    ansible_become_method: "{{ dovecot_molecule_become_method | default('su') }}"
     state: "present"
     dovecot_test_reload_failure_once: true
     dovecot_test_reload_counter_path: "/tmp/dovecot-test-reload-counter"
@@ -538,7 +538,7 @@
 
 - name: Verify resource failure restores the pre-run configuration and reruns
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "present"
     iac_blueprint:
@@ -666,7 +666,7 @@
 
 - name: Verify fresh-host resource failure removes newly installed configuration
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "present"
     iac_blueprint:
@@ -744,7 +744,7 @@
 
 - name: Verify resource failure reuses a pre-existing recovery snapshot
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: "present"
     iac_blueprint:
@@ -838,7 +838,7 @@
 
 - name: Verify orphan transaction state fails closed
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   tasks:
     - name: "Testing every orphan transaction artifact and marker direction"
       ansible.builtin.include_tasks: orphan_transaction_case.yml
@@ -882,9 +882,9 @@
         dovecot_orphan_marker_present: "{{ dovecot_orphan_case.marker_present }}"
 - name: "Verify managed marker removal"
   hosts: all
-  become: true
+  become: "{{ dovecot_molecule_become | default(true) }}"
   vars:
-    ansible_become_method: su
+    ansible_become_method: "{{ dovecot_molecule_become_method | default('su') }}"
     state: "absent"
     iac_blueprint:
       dovecot: {}

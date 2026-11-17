@@ -1,0 +1,48 @@
+---
+# Experimental host-mount coverage; never run on the shared Podman runner.
+driver:
+  name: default
+  options:
+    managed: true
+
+platforms:
+  - name: rocky9
+    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE}"
+    kickstart: "${IDARSI_TEST_ENVIRONMENT}/examples/molecule-kvm/rocky9-10.ks.tmpl"
+    memory_mb: 4096
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
+  - name: rocky10
+    install_source: "${IDARSI_TEST_KVM_INSTALL_SOURCE_ROCKY10}"
+    kickstart: "${IDARSI_TEST_ENVIRONMENT}/examples/molecule-kvm/rocky9-10.ks.tmpl"
+    memory_mb: 4096
+    vcpus: 2
+    disk_size_gb: 30
+    install_timeout: 3600
+    ssh_user: molecule
+
+provisioner:
+  name: ansible
+  playbooks:
+    create: "${IDARSI_TEST_ENVIRONMENT}/molecule/managed/create.yml"
+    destroy: "${IDARSI_TEST_ENVIRONMENT}/molecule/managed/destroy.yml"
+    converge: "${MOLECULE_PROJECT_DIRECTORY}/molecule/podman-default/converge.yml"
+    verify: "${MOLECULE_PROJECT_DIRECTORY}/molecule/podman-default/verify.yml"
+  inventory:
+    group_vars:
+      all:
+        dovecot_molecule_become: true
+        dovecot_molecule_become_method: "sudo"
+        # The shared Git task disables inherited become unless this is set.
+        iac_git_become_user: "root"
+  env:
+    ANSIBLE_ALLOW_BROKEN_CONDITIONALS: "1"
+    ANSIBLE_ASYNC_DIR: "${MOLECULE_PROJECT_DIRECTORY}/.ansible_async"
+    ANSIBLE_LOCAL_TEMP: "/tmp/.ansible/tmp"
+    ANSIBLE_REMOTE_TMP: "/tmp"
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."
+
+verifier:
+  name: ansible

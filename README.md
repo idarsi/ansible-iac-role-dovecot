@@ -1,40 +1,73 @@
-> **Maturity State: Beta**<br>
-> **RC Readiness: 80%**
+> **Maturity State: Beta**
+>
+> **RC Readiness: 69%**
 
 ANSIBLE-IAC-ROLE-DOVECOT
 ========================
 
-Assessment basis: commit `8a2a064587bb1b555b74cc18f79b175dce3c7f9c` on branch
-`update/dovecot-ansible-215`. The `tasks/shared` submodule is initialized at
-`d70d58e` and remains a required dependency. The declared minimum is ansible-core
-2.19.0; CI uses ansible-core 2.21.3 and does not enforce the declared minimum.
-The 80% score reflects the implemented validation, guarded cleanup, configuration
-rollback, and Rocky Linux 9/10 test coverage, while check/diff behavior, some
-recovery/transition paths, and runtime verification at the declared minimum
-remain incomplete or lack evidence. No production-readiness review is recorded.
+Assessment basis: HEAD `a4b4aa4` plus the uncommitted working tree on
+`update/dovecot-kvm-bind-migration`, including the initialized `tasks/shared`
+submodule at `d70d58e`. This is a **new methodological baseline**, applying
+the current maturity rubric's 0, 0.5, or 1 multiplier to each criterion; it
+is not a like-for-like decline from the historical 78% assessment. The tester
+reported passing `podman-default` converge/idempotence/verify/destroy on
+`ansible-min` and `ansible-current`, and one supervised `ansible-current` KVM
+run on Rocky 9 and 10 covering bind migration, fstab, rollback, recovery, and
+cleanup. These are local results, not CI results at this uncommitted ref.
+`meta/main.yml` declares ansible-core 2.19.0 while the pre-existing
+Requirements section below says Ansible 2.15 or higher; the 2.15 baseline
+pass does not establish role-wide support at 2.15. KVM min/next lanes and
+managed-runner concurrency/interruption acceptance remain unverified.
 
 Scorecard (criterion points / maximum):
 
 | Category | Criterion scores | Subtotal |
 | --- | --- | ---: |
-| Scope and public contract | Purpose 3/3; inputs/states 4/5; support 4/4 | 11/12 |
-| Functional completeness | Core convergence 7/8; lifecycle 5/6; platform/dependencies 2/3; failure/rerun 2/3 | 16/20 |
-| Validation and safety | Preflight 5/6; secure behavior 5/6; destructive guardrails 4/5; check/diff 2/3 | 16/20 |
-| Convergence and recovery | Idempotence 4/5; transitions 2/4; operational recovery 2/4 | 8/13 |
-| Automated testing and CI | Static checks 3/3; validation tests 3/4; functional tests 4/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 2/3; CI enforcement 1/1 | 19/25 |
-| Documentation and release hygiene | Operator docs 4/4; test/limitations 2/2; contribution contract 2/2; metadata 2/2 | 10/10 |
+| Scope and public contract | Purpose 3/3; inputs/states 2.5/5; support 2/4 | 7.5/12 |
+| Functional completeness | Core convergence 8/8; lifecycle 3/6; platform/dependencies 1.5/3; failure/rerun 3/3 | 15.5/20 |
+| Validation and safety | Preflight 3/6; secure behavior 3/6; destructive guardrails 2.5/5; check/diff 1.5/3 | 10/20 |
+| Convergence and recovery | Idempotence 5/5; transitions 2/4; operational recovery 2/4 | 9/13 |
+| Automated testing and CI | Static checks 3/3; validation tests 2/4; functional tests 6/6; idempotence 4/4; lifecycle/guardrails 2/4; platform matrix 3/3; CI enforcement 0.5/1 | 20.5/25 |
+| Documentation and release hygiene | Operator docs 2/4; test/limitations 2/2; contribution contract 2/2; metadata 1/2 | 7/10 |
 
-**Total: 80/100 (rounded down); score-based and final state: Beta.** The role
-has substantial blueprint validation, guarded resource removal, configuration
-rollback, and Rocky functional/idempotence coverage. It is not an RC: check/diff
-behavior and some recovery/transition paths lack adequate evidence. Support is
-now intentionally limited to Rocky Linux 9 and 10; Red Hat Enterprise Linux is
-not supported. Existing automated Rocky coverage is configured, while Rocky 10
-and lifecycle jobs are scheduled rather than PR checks.
-The smallest readiness gains are reproducible check/diff-mode tests, broader
-failure/recovery and transition tests, and CI evidence for the declared minimum
-Ansible version. See [TESTING.md](TESTING.md) for coverage and runtime-validation
-limits.
+Changes from the historical 78.5-point scorecard reflect the stricter
+per-criterion multiplier, not necessarily a change in role behavior:
+
+- **Scope:** purpose remains 3/3; inputs/states 4 to 2.5 reflects the
+  incomplete contract detail; support 4 to 2 reflects the 2.15 README versus
+  2.19 metadata mismatch and incomplete version-boundary evidence.
+- **Function:** core convergence 7 to 8 and failure/rerun 2 to 3 reflect
+  observed baseline and recovery; lifecycle 5 to 3 reflects incomplete
+  transition evidence; platform/dependencies 2 to 1.5 reflects partial
+  verification across declared versions.
+- **Safety:** preflight 5 to 3 and secure behavior 5 to 3 reflect partial
+  evidence for complete validation and security scope; destructive guardrails
+  4 to 2.5 reflect incomplete ownership proof for shared Git/filesystem
+  cleanup despite stronger configuration/cron/bind checks; check/diff 2 to
+  1.5 reflects the documented, untested preview behavior.
+- **Recovery:** idempotence 4 to 5 reflects passing second convergence;
+  transitions 2 to 2 and operational recovery 2 to 2 retain partial credit
+  because the demonstrated rollback does not cover every transition or
+  interruption.
+- **Testing:** static checks 3 to 3 and idempotence 4 to 4 are unchanged;
+  validation 3 to 2 reflects incomplete negative-case coverage; observable
+  functional tests 4 to 6 and platform matrix 2 to 3 reflect Podman plus
+  manual Rocky 9/10 KVM evidence, not KVM CI enforcement; lifecycle/guardrails
+  2 to 2 remain partial. CI 0.5 to 0.5 reflects configured checks without a
+  result at this uncommitted ref, not a verified passing required CI run.
+- **Docs:** operator docs 4 to 2 and metadata 2 to 1 reflect the conflicting
+  Ansible minimum and incomplete compatibility/release detail;
+  test/limitations 1 to 2 reflect the updated coverage and gap matrix;
+  contribution contract 2 to 2 is unchanged.
+
+**Total: 69.5/100 (rounded down to 69%); score-based and final state: Beta.**
+The role supports only Rocky Linux 9 and 10, not RHEL. Check/diff coverage,
+some transitions and interruption recovery, a consistent compatibility
+contract, and required CI evidence at the assessed ref remain RC blockers.
+The smallest readiness gains are to reconcile the Ansible minimum, test
+check/diff and missing transitions, strengthen destructive ownership checks,
+and verify required CI at a committed ref. See [TESTING.md](TESTING.md) for
+runtime and coverage boundaries. No production-readiness review is recorded.
 
 ## Compatibility and releases
 
@@ -408,7 +441,7 @@ git submodule update --init --recursive
 Testing
 -------
 
-The `default` and `rocky10` Molecule scenarios cover Dovecot installation and
+The `podman-default` and `podman-rocky10` Molecule scenarios cover Dovecot installation and
 configuration, shared filesystem resources, bind migration, cron jobs, and a
 local Git checkout on Rocky Linux 9 and 10. See [TESTING.md](TESTING.md) for
 the complete scenario coverage, current limitations, and test commands.

@@ -1,9 +1,9 @@
 - name: Converge
   hosts: all
-  become: false
+  become: "{{ dovecot_molecule_become | default(false) }}"
   vars:
     state: install
-    ansible_become_method: su
+    ansible_become_method: "{{ dovecot_molecule_become_method | default('su') }}"
     iac_blueprint:
       dovecot:
         configuration:
